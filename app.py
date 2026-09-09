@@ -1,11 +1,10 @@
 import streamlit as st
 import pandas as pd
+import json
 from datetime import datetime
 
 # ============================================================
 # MARINE OPERATIONS INTELLIGENCE CENTRE
-# Foundation Application
-# Version 1.0
 # ============================================================
 
 st.set_page_config(
@@ -16,7 +15,7 @@ st.set_page_config(
 )
 
 # ============================================================
-# FLEET MASTER - 21 VESSELS
+# CONFIGURATION
 # ============================================================
 
 FLEET = [
@@ -43,135 +42,196 @@ FLEET = [
     "WHALE 3",
 ]
 
+ROLES = [
+    "Marine Superintendent",
+    "DPA",
+    "Manager Operation Marine",
+]
+
+# ============================================================
+# SAMPLE OPERATIONAL DATABASE
+# ============================================================
+
+VESSEL_DATA = []
+
+for vessel in FLEET:
+    VESSEL_DATA.append(
+        {
+            "Vessel": vessel,
+            "Status": "Active",
+            "Location": "Data belum tersedia",
+            "Voyage": "Data belum tersedia",
+            "Defect": "Tidak ada data",
+            "Certificate": "Tidak ada data",
+            "PMS": "Tidak ada data",
+            "Risk": "Belum dinilai",
+        }
+    )
+
+VESSELS_DF = pd.DataFrame(VESSEL_DATA)
+
 # ============================================================
 # SESSION STATE
 # ============================================================
 
-if "selected_menu" not in st.session_state:
-    st.session_state.selected_menu = "Dashboard"
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
 
 if "role" not in st.session_state:
     st.session_state.role = "Marine Superintendent"
 
+if "ai_history" not in st.session_state:
+    st.session_state.ai_history = []
+
 # ============================================================
-# STYLE
+# LOGIN
 # ============================================================
 
-st.markdown(
-    """
-    <style>
-    .main-title {
-        font-size: 34px;
-        font-weight: 700;
-        margin-bottom: 0px;
-    }
+if not st.session_state.logged_in:
 
-    .subtitle {
-        font-size: 16px;
-        color: #666666;
-        margin-bottom: 25px;
-    }
+    st.title("⚓ MARINE OPERATIONS INTELLIGENCE CENTRE")
 
-    .metric-card {
-        padding: 20px;
-        border-radius: 12px;
-        border: 1px solid #dddddd;
-        background: #ffffff;
-        text-align: center;
-    }
+    st.subheader("Secure Operations Portal")
 
-    .section-title {
-        font-size: 24px;
-        font-weight: 650;
-        margin-top: 10px;
-        margin-bottom: 15px;
-    }
+    st.markdown(
+        """
+        **Fleet Intelligence • HSSE • PMS • Voyage • Risk • AI Copilot**
+        
+        Silakan login untuk masuk ke Marine Operations Intelligence Centre.
+        """
+    )
 
-    .status-ok {
-        padding: 12px;
-        border-radius: 8px;
-        background: #e8f5e9;
-        border: 1px solid #b7dfb9;
-    }
+    with st.form("login_form"):
 
-    .status-info {
-        padding: 12px;
-        border-radius: 8px;
-        background: #eef5ff;
-        border: 1px solid #c9dcff;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+        username = st.text_input("Username")
+
+        password = st.text_input(
+            "Password",
+            type="password"
+        )
+
+        role = st.selectbox(
+            "Operational Role",
+            ROLES
+        )
+
+        submitted = st.form_submit_button(
+            "LOGIN"
+        )
+
+        if submitted:
+
+            # ------------------------------------------------
+            # DEMO LOGIN
+            # ------------------------------------------------
+            # Untuk deployment awal:
+            # username: admin
+            # password: marine
+            #
+            # Password production nanti dipindahkan ke Secrets.
+            # ------------------------------------------------
+
+            if username == "admin" and password == "marine":
+
+                st.session_state.logged_in = True
+                st.session_state.role = role
+
+                st.rerun()
+
+            else:
+
+                st.error(
+                    "Username atau password tidak benar."
+                )
+
+    st.stop()
 
 # ============================================================
 # SIDEBAR
 # ============================================================
 
-st.sidebar.title("⚓ MARINE OIC")
+with st.sidebar:
 
-st.sidebar.caption("Marine Operations Intelligence Centre")
+    st.markdown(
+        """
+        # ⚓ MARINE OPERATIONS
+        ## INTELLIGENCE CENTRE
+        """
+    )
 
-st.sidebar.divider()
+    st.caption(
+        "Fleet Intelligence & Marine Operations Command"
+    )
 
-st.session_state.role = st.sidebar.selectbox(
-    "Role",
-    [
-        "Marine Superintendent",
-        "DPA",
-        "Manager Operation Marine",
-    ],
-    index=0,
-)
+    st.divider()
 
-menu_items = [
-    "Dashboard",
-    "Fleet 21",
-    "Crew 200",
-    "Voyage Operations",
-    "HSSE / DPA",
-    "PMS / Maintenance",
-    "Defects",
-    "Certificates",
-    "Bunker",
-    "Cargo",
-    "Audit & Findings",
-    "Action Tracker",
-    "WhatsApp Operations",
-    "Executive Reports",
-    "AI Marine Operations Copilot",
-    "System",
-]
+    role = st.selectbox(
+        "Operational Role",
+        ROLES,
+        index=ROLES.index(st.session_state.role)
+    )
 
-menu = st.sidebar.radio(
-    "MENU",
-    menu_items,
-)
+    st.session_state.role = role
 
-st.sidebar.divider()
+    st.divider()
 
-st.sidebar.metric("Fleet", "21 vessels")
-st.sidebar.metric("Crew Master", "200")
-st.sidebar.caption(
-    "Marine Operations Intelligence Centre"
-)
+    menu = st.radio(
+        "MENU",
+        [
+            "Dashboard",
+            "Fleet 21",
+            "Crew 200",
+            "Voyage Operations",
+            "HSSE / DPA",
+            "PMS / Maintenance",
+            "Defects",
+            "Certificates",
+            "Bunker",
+            "Cargo",
+            "Audit & Findings",
+            "Action Tracker",
+            "AI Marine Copilot",
+            "Executive Reports",
+            "WhatsApp Operations",
+            "System",
+        ]
+    )
+
+    st.divider()
+
+    st.metric(
+        "Fleet",
+        "21"
+    )
+
+    st.metric(
+        "Crew Master",
+        "200"
+    )
+
+    st.caption(
+        f"Role: {st.session_state.role}"
+    )
+
+    if st.button("Logout"):
+
+        st.session_state.logged_in = False
+
+        st.rerun()
 
 # ============================================================
 # HEADER
 # ============================================================
 
-st.markdown(
-    '<div class="main-title">⚓ MARINE OPERATIONS INTELLIGENCE CENTRE</div>',
-    unsafe_allow_html=True,
+st.title(
+    "⚓ MARINE OPERATIONS INTELLIGENCE CENTRE"
 )
 
-st.markdown(
-    '<div class="subtitle">'
-    "Fleet Intelligence • Marine Operations • HSSE • PMS • Crew • AI"
-    "</div>",
-    unsafe_allow_html=True,
+st.caption(
+    f"Operational Intelligence Platform • {st.session_state.role}"
 )
+
+st.divider()
 
 # ============================================================
 # DASHBOARD
@@ -179,93 +239,87 @@ st.markdown(
 
 if menu == "Dashboard":
 
-    st.markdown(
-        '<div class="section-title">Operational Intelligence Dashboard</div>',
-        unsafe_allow_html=True,
-    )
+    st.header("📊 Operations Command Dashboard")
 
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
         st.metric(
             "Fleet",
-            "21",
-            "Active vessels",
+            "21 Vessels"
         )
 
     with col2:
         st.metric(
             "Crew",
-            "200",
-            "Master database",
+            "200"
         )
 
     with col3:
         st.metric(
-            "Voyages",
-            "0",
-            "Recorded",
+            "Active Vessels",
+            "21"
         )
 
     with col4:
         st.metric(
-            "Critical Risks",
-            "0",
-            "Awaiting live data",
+            "Critical Alerts",
+            "0"
         )
 
     st.divider()
 
-    left, right = st.columns(2)
+    st.subheader(
+        "Fleet Operational Overview"
+    )
 
-    with left:
-        st.subheader("Fleet Readiness")
+    dashboard_df = pd.DataFrame(
+        {
+            "Indicator": [
+                "Fleet",
+                "Active Vessel",
+                "Voyage Records",
+                "Open Defects",
+                "Certificate Records",
+                "PMS Records",
+                "HSSE Findings",
+                "Pending Actions",
+            ],
+            "Value": [
+                21,
+                21,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+            ],
+            "Status": [
+                "ACTIVE",
+                "ACTIVE",
+                "DATA GAP",
+                "DATA GAP",
+                "DATA GAP",
+                "DATA GAP",
+                "DATA GAP",
+                "DATA GAP",
+            ],
+        }
+    )
 
-        readiness = pd.DataFrame(
-            {
-                "Status": [
-                    "Operational",
-                    "Under Monitoring",
-                    "Maintenance",
-                    "Critical",
-                ],
-                "Vessels": [
-                    21,
-                    0,
-                    0,
-                    0,
-                ],
-            }
-        )
+    st.dataframe(
+        dashboard_df,
+        use_container_width=True,
+        hide_index=True
+    )
 
-        st.dataframe(
-            readiness,
-            use_container_width=True,
-            hide_index=True,
-        )
-
-    with right:
-        st.subheader("Priority Intelligence")
-
-        st.info(
-            "Belum ada data operasional live yang "
-            "dimasukkan ke Intelligence Centre."
-        )
-
-        st.write(
-            "AI Copilot nantinya akan membaca data "
-            "Fleet, Voyage, HSSE/DPA, PMS, Defects, "
-            "Certificates, Crew, Bunker, Cargo, "
-            "Audit dan Action Tracker."
-        )
-
-    st.divider()
-
-    st.subheader("Today's Marine Operations Focus")
-
-    st.warning(
-        "Data operasional belum terhubung ke database live. "
-        "Sistem tidak akan mengarang kondisi kapal."
+    st.info(
+        """
+        Intelligence Centre saat ini menggunakan database awal.
+        Data operasional nyata akan dimasukkan secara bertahap
+        tanpa mengganggu aplikasi MARINE OPERATION VESSEL PRO.
+        """
     )
 
 # ============================================================
@@ -274,27 +328,56 @@ if menu == "Dashboard":
 
 elif menu == "Fleet 21":
 
-    st.markdown(
-        '<div class="section-title">Fleet Intelligence — 21 Vessels</div>',
-        unsafe_allow_html=True,
-    )
+    st.header("🚢 Fleet 21")
 
-    fleet_df = pd.DataFrame(
-        {
-            "No": range(1, 22),
-            "Vessel": FLEET,
-            "Status": ["Active"] * 21,
-            "Position": ["Not Available"] * 21,
-            "Voyage": ["Not Recorded"] * 21,
-            "Risk": ["Not Assessed"] * 21,
-        }
+    st.write(
+        "Daftar armada yang menjadi basis Intelligence Centre."
     )
 
     st.dataframe(
-        fleet_df,
+        VESSELS_DF,
         use_container_width=True,
-        hide_index=True,
+        hide_index=True
     )
+
+    selected_vessel = st.selectbox(
+        "Pilih kapal",
+        FLEET
+    )
+
+    vessel = VESSELS_DF[
+        VESSELS_DF["Vessel"] == selected_vessel
+    ].iloc[0]
+
+    st.subheader(
+        f"Vessel Intelligence — {selected_vessel}"
+    )
+
+    a, b, c, d = st.columns(4)
+
+    with a:
+        st.metric(
+            "Status",
+            vessel["Status"]
+        )
+
+    with b:
+        st.metric(
+            "Voyage",
+            "N/A"
+        )
+
+    with c:
+        st.metric(
+            "Defect",
+            "N/A"
+        )
+
+    with d:
+        st.metric(
+            "Risk",
+            "N/A"
+        )
 
 # ============================================================
 # CREW
@@ -302,21 +385,25 @@ elif menu == "Fleet 21":
 
 elif menu == "Crew 200":
 
-    st.markdown(
-        '<div class="section-title">Crew Intelligence</div>',
-        unsafe_allow_html=True,
-    )
+    st.header("👨‍✈️ Crew Intelligence")
 
-    col1, col2, col3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
 
-    col1.metric("Crew Master", "200")
-    col2.metric("Active Crew", "0")
-    col3.metric("Expiring Documents", "0")
+    with c1:
+        st.metric("Total Crew", "200")
+
+    with c2:
+        st.metric("Officers", "Data Gap")
+
+    with c3:
+        st.metric("Ratings", "Data Gap")
+
+    with c4:
+        st.metric("Expiring Certificates", "Data Gap")
 
     st.info(
-        "Crew database module siap dikembangkan "
-        "untuk rank, vessel assignment, certification, "
-        "medical fitness, training dan rotation."
+        "Modul crew akan dikembangkan dengan matrix competence, "
+        "certificate validity, rank, vessel assignment dan fatigue monitoring."
     )
 
 # ============================================================
@@ -325,31 +412,28 @@ elif menu == "Crew 200":
 
 elif menu == "Voyage Operations":
 
-    st.markdown(
-        '<div class="section-title">Voyage & Operations Intelligence</div>',
-        unsafe_allow_html=True,
+    st.header("🧭 Voyage Operations Intelligence")
+
+    st.warning(
+        "Belum ada voyage record pada database Intelligence Centre."
     )
 
-    st.info(
-        "Modul Voyage Operations akan menjadi pusat "
-        "monitoring perjalanan, port call, cargo, ETA/ETD, "
-        "operational status dan voyage risk."
+    voyage_df = pd.DataFrame(
+        columns=[
+            "Vessel",
+            "Voyage",
+            "Origin",
+            "Destination",
+            "ETD",
+            "ETA",
+            "Status",
+        ]
     )
 
     st.dataframe(
-        pd.DataFrame(
-            columns=[
-                "Vessel",
-                "Voyage",
-                "Origin",
-                "Destination",
-                "ETA",
-                "Status",
-                "Risk",
-            ]
-        ),
+        voyage_df,
         use_container_width=True,
-        hide_index=True,
+        hide_index=True
     )
 
 # ============================================================
@@ -358,22 +442,31 @@ elif menu == "Voyage Operations":
 
 elif menu == "HSSE / DPA":
 
-    st.markdown(
-        '<div class="section-title">HSSE / DPA Intelligence</div>',
-        unsafe_allow_html=True,
-    )
+    st.header("🛡️ HSSE / DPA Command")
 
-    col1, col2, col3, col4 = st.columns(4)
+    c1, c2, c3 = st.columns(3)
 
-    col1.metric("Incidents", "0")
-    col2.metric("Near Miss", "0")
-    col3.metric("Open Findings", "0")
-    col4.metric("Critical HSSE", "0")
+    with c1:
+        st.metric(
+            "Incidents",
+            "0"
+        )
+
+    with c2:
+        st.metric(
+            "Near Miss",
+            "0"
+        )
+
+    with c3:
+        st.metric(
+            "Open Findings",
+            "0"
+        )
 
     st.info(
-        "HSSE intelligence akan menghubungkan incident, "
-        "near miss, unsafe condition, DPA reports, "
-        "ISM / ISPS / MARPOL compliance dan corrective actions."
+        "Risk intelligence akan menggabungkan HSSE, defects, "
+        "certificates, PMS dan operational reports."
     )
 
 # ============================================================
@@ -382,20 +475,15 @@ elif menu == "HSSE / DPA":
 
 elif menu == "PMS / Maintenance":
 
-    st.markdown(
-        '<div class="section-title">PMS / Maintenance Intelligence</div>',
-        unsafe_allow_html=True,
+    st.header("🔧 PMS / Maintenance Intelligence")
+
+    st.metric(
+        "Maintenance Records",
+        "0"
     )
 
-    col1, col2, col3 = st.columns(3)
-
-    col1.metric("PMS Due", "0")
-    col2.metric("Overdue", "0")
-    col3.metric("Critical Machinery", "0")
-
-    st.info(
-        "PMS module akan digunakan untuk planned maintenance, "
-        "overdue jobs, machinery condition dan maintenance risk."
+    st.warning(
+        "Belum ada PMS record."
     )
 
 # ============================================================
@@ -404,27 +492,24 @@ elif menu == "PMS / Maintenance":
 
 elif menu == "Defects":
 
-    st.markdown(
-        '<div class="section-title">Defect Management</div>',
-        unsafe_allow_html=True,
+    st.header("⚠️ Defect Intelligence")
+
+    defect_df = pd.DataFrame(
+        columns=[
+            "Vessel",
+            "Defect",
+            "Severity",
+            "Reported",
+            "Due Date",
+            "Status",
+            "Responsible",
+        ]
     )
 
-    st.metric("Open Defects", "0")
-
     st.dataframe(
-        pd.DataFrame(
-            columns=[
-                "Vessel",
-                "Defect",
-                "Category",
-                "Priority",
-                "Responsible",
-                "Due Date",
-                "Status",
-            ]
-        ),
+        defect_df,
         use_container_width=True,
-        hide_index=True,
+        hide_index=True
     )
 
 # ============================================================
@@ -433,20 +518,11 @@ elif menu == "Defects":
 
 elif menu == "Certificates":
 
-    st.markdown(
-        '<div class="section-title">Certificate Intelligence</div>',
-        unsafe_allow_html=True,
-    )
-
-    col1, col2, col3 = st.columns(3)
-
-    col1.metric("Certificates", "0")
-    col2.metric("Expiring < 30 Days", "0")
-    col3.metric("Expired", "0")
+    st.header("📜 Certificate Intelligence")
 
     st.info(
-        "Certificate monitoring akan mencakup statutory, "
-        "class, flag, safety dan operational certificates."
+        "Certificate tracking akan mencakup expiry, statutory, "
+        "class, flag dan operational certificates."
     )
 
 # ============================================================
@@ -455,17 +531,27 @@ elif menu == "Certificates":
 
 elif menu == "Bunker":
 
-    st.markdown(
-        '<div class="section-title">Bunker Intelligence</div>',
-        unsafe_allow_html=True,
-    )
+    st.header("⛽ Bunker Intelligence")
 
-    st.metric("Bunker Records", "0")
+    c1, c2, c3 = st.columns(3)
 
-    st.info(
-        "Monitoring fuel consumption, ROB, bunker delivery "
-        "dan abnormal consumption akan ditambahkan di tahap berikutnya."
-    )
+    with c1:
+        st.metric(
+            "Vessels",
+            "21"
+        )
+
+    with c2:
+        st.metric(
+            "Bunker Reports",
+            "0"
+        )
+
+    with c3:
+        st.metric(
+            "Consumption Alerts",
+            "0"
+        )
 
 # ============================================================
 # CARGO
@@ -473,14 +559,12 @@ elif menu == "Bunker":
 
 elif menu == "Cargo":
 
-    st.markdown(
-        '<div class="section-title">Cargo Operations Intelligence</div>',
-        unsafe_allow_html=True,
-    )
+    st.header("📦 Cargo Operations")
 
     st.info(
-        "Cargo module akan mencatat cargo operation, "
-        "quantity, loading/discharging status dan operational risk."
+        "Cargo intelligence module siap dikembangkan untuk "
+        "cargo status, quantity, destination, operational risk "
+        "dan voyage linkage."
     )
 
 # ============================================================
@@ -489,16 +573,25 @@ elif menu == "Cargo":
 
 elif menu == "Audit & Findings":
 
-    st.markdown(
-        '<div class="section-title">Audit & Findings Intelligence</div>',
-        unsafe_allow_html=True,
+    st.header("🔍 Audit & Findings")
+
+    audit_df = pd.DataFrame(
+        columns=[
+            "Finding ID",
+            "Vessel",
+            "Finding",
+            "Severity",
+            "Due Date",
+            "Status",
+            "Owner",
+        ]
     )
 
-    col1, col2, col3 = st.columns(3)
-
-    col1.metric("Open Findings", "0")
-    col2.metric("Overdue Findings", "0")
-    col3.metric("Critical Findings", "0")
+    st.dataframe(
+        audit_df,
+        use_container_width=True,
+        hide_index=True
+    )
 
 # ============================================================
 # ACTION TRACKER
@@ -506,31 +599,163 @@ elif menu == "Audit & Findings":
 
 elif menu == "Action Tracker":
 
-    st.markdown(
-        '<div class="section-title">Action Tracker</div>',
-        unsafe_allow_html=True,
-    )
+    st.header("✅ Action Tracker")
 
-    st.info(
-        "Central action tracker untuk memastikan setiap "
-        "temuan memiliki responsible person, due date, "
-        "priority dan closure evidence."
+    action_df = pd.DataFrame(
+        columns=[
+            "Action ID",
+            "Description",
+            "Priority",
+            "Responsible",
+            "Due Date",
+            "Status",
+        ]
     )
 
     st.dataframe(
-        pd.DataFrame(
-            columns=[
-                "Action",
-                "Source",
-                "Vessel",
-                "Priority",
-                "Responsible",
-                "Due Date",
-                "Status",
-            ]
-        ),
+        action_df,
         use_container_width=True,
-        hide_index=True,
+        hide_index=True
+    )
+
+# ============================================================
+# AI MARINE COPILOT
+# ============================================================
+
+elif menu == "AI Marine Copilot":
+
+    st.header("🤖 AI Marine Operations Copilot")
+
+    st.caption(
+        f"Decision support untuk {st.session_state.role}"
+    )
+
+    st.info(
+        """
+        AI Copilot akan menjadi pusat intelligence:
+        
+        • Fleet risk assessment
+        • Daily SITREP
+        • Top operational risks
+        • Defect prioritisation
+        • PMS risk
+        • Certificate risk
+        • HSSE/DPA analysis
+        • Voyage risk
+        • Executive briefing
+        • WhatsApp operational intelligence
+        """
+    )
+
+    st.subheader(
+        "Pertanyaan / Instruksi"
+    )
+
+    prompt = st.text_area(
+        "Tanyakan kepada Marine Operations Copilot",
+        placeholder=(
+            "Contoh: Buatkan ringkasan kondisi 21 kapal, "
+            "5 risiko tertinggi dan tindakan prioritas hari ini."
+        ),
+        height=150,
+    )
+
+    if st.button(
+        "ASK AI",
+        type="primary"
+    ):
+
+        if not prompt.strip():
+
+            st.warning(
+                "Masukkan pertanyaan terlebih dahulu."
+            )
+
+        else:
+
+            # ------------------------------------------------
+            # AI PLACEHOLDER
+            # ------------------------------------------------
+
+            response = f"""
+## MARINE OPERATIONS INTELLIGENCE ANALYSIS
+
+**Role:** {st.session_state.role}
+
+### Request
+{prompt}
+
+### Current Database Facts
+
+- Fleet: **21 vessels**
+- Crew master: **200 employees**
+- Active vessels recorded: **21**
+- Voyage records available: **0**
+- Defect records available: **0**
+- Certificate records available: **0**
+- PMS records available: **0**
+- HSSE findings available: **0**
+
+### Intelligence Assessment
+
+Saat ini belum tersedia cukup data operasional
+untuk menghasilkan risk ranking yang faktual.
+
+**AI tidak akan mengarang data.**
+
+### Immediate Priority
+
+1. Lengkapi voyage data.
+2. Lengkapi defect register.
+3. Lengkapi certificate register.
+4. Lengkapi PMS status.
+5. Lengkapi HSSE / DPA findings.
+6. Hubungkan operational reports / WhatsApp.
+7. Jalankan AI risk assessment setelah data tersedia.
+
+### Executive Decision
+
+Data gap saat ini merupakan risiko informasi.
+Prioritas pertama adalah membangun single source of truth
+untuk seluruh 21 kapal.
+"""
+
+            st.markdown(response)
+
+# ============================================================
+# EXECUTIVE REPORTS
+# ============================================================
+
+elif menu == "Executive Reports":
+
+    st.header("📑 Executive Reports")
+
+    st.subheader(
+        "Daily Marine Operations Brief"
+    )
+
+    report_date = datetime.now().strftime(
+        "%d %B %Y"
+    )
+
+    st.write(
+        f"Report date: **{report_date}**"
+    )
+
+    report = {
+        "Fleet": 21,
+        "Crew": 200,
+        "Critical Risks": 0,
+        "Open Defects": 0,
+        "Open HSSE Findings": 0,
+        "Overdue Actions": 0,
+    }
+
+    st.json(report)
+
+    st.info(
+        "Executive report otomatis akan dihubungkan "
+        "ke AI Copilot setelah database operasional aktif."
     )
 
 # ============================================================
@@ -539,150 +764,40 @@ elif menu == "Action Tracker":
 
 elif menu == "WhatsApp Operations":
 
-    st.markdown(
-        '<div class="section-title">WhatsApp Operations Intelligence</div>',
-        unsafe_allow_html=True,
-    )
+    st.header("📱 WhatsApp Operations Intelligence")
 
     st.info(
-        "WhatsApp Operations akan menjadi sumber operational "
-        "reports dari vessel dan shore team."
-    )
-
-    st.write(
-        "Tahap berikutnya akan menambahkan:"
-    )
-
-    st.write(
         """
-        • Group mapping 21 vessel
-        • Incoming operational reports
-        • Message classification
-        • Incident / defect extraction
-        • Alert generation
-        • AI summarisation
-        • Escalation
+        Modul ini disiapkan untuk integrasi operational
+        communication.
+
+        Tahap berikutnya:
+        1. WhatsApp Business Platform / Cloud API
+        2. Webhook backend
+        3. Operational message database
+        4. AI classification
+        5. Risk extraction
+        6. Vessel mapping
+        7. Escalation
         """
     )
 
-    st.warning(
-        "Integrasi WhatsApp resmi akan dibuat menggunakan "
-        "WhatsApp Business Platform / Cloud API. "
-        "Tidak menggunakan WhatsApp Web scraping."
+    whatsapp_df = pd.DataFrame(
+        columns=[
+            "Time",
+            "Vessel",
+            "Sender",
+            "Message",
+            "Risk",
+            "Status",
+        ]
     )
 
-# ============================================================
-# EXECUTIVE REPORTS
-# ============================================================
-
-elif menu == "Executive Reports":
-
-    st.markdown(
-        '<div class="section-title">Executive Marine Reports</div>',
-        unsafe_allow_html=True,
+    st.dataframe(
+        whatsapp_df,
+        use_container_width=True,
+        hide_index=True
     )
-
-    st.info(
-        "Executive reporting akan menghasilkan laporan "
-        "operasional harian untuk Marine Superintendent, "
-        "DPA dan Manager Operation Marine."
-    )
-
-    report_type = st.selectbox(
-        "Report Type",
-        [
-            "Daily Fleet SITREP",
-            "HSSE Executive Report",
-            "Maintenance Executive Report",
-            "Voyage Operations Report",
-            "Marine Management Report",
-        ],
-    )
-
-    if st.button("GENERATE REPORT", type="primary"):
-        st.success(
-            f"Template {report_type} siap. "
-            "AI reporting akan diaktifkan pada tahap berikutnya."
-        )
-
-# ============================================================
-# AI COPILOT
-# ============================================================
-
-elif menu == "AI Marine Operations Copilot":
-
-    st.markdown(
-        '<div class="section-title">🤖 AI Marine Operations Copilot</div>',
-        unsafe_allow_html=True,
-    )
-
-    st.caption(
-        f"Role: {st.session_state.role} • "
-        "Fleet: 21 Vessels • Crew Master: 200"
-    )
-
-    st.success(
-        "AI Copilot Foundation READY"
-    )
-
-    st.write(
-        "AI Copilot akan menjadi pusat intelligence untuk:"
-    )
-
-    st.write(
-        """
-        **1. Fleet Intelligence**
-        
-        Kondisi seluruh 21 kapal dan prioritas risiko.
-        
-        **2. Operational Risk**
-        
-        Identifikasi risiko berdasarkan data aktual.
-        
-        **3. HSSE / DPA**
-        
-        Incident, near miss, findings dan compliance.
-        
-        **4. PMS / Defects**
-        
-        Maintenance risk dan overdue actions.
-        
-        **5. Voyage**
-        
-        Voyage status dan operational continuity.
-        
-        **6. WhatsApp Intelligence**
-        
-        Operational reports dari vessel / shore team.
-        
-        **7. Executive Decision Support**
-        
-        Prioritas tindakan untuk management.
-        """
-    )
-
-    question = st.text_area(
-        "Pertanyaan / instruksi kepada AI",
-        placeholder=(
-            "Contoh: Buatkan ringkasan kondisi operasional "
-            "21 kapal dan 5 risiko tertinggi berdasarkan "
-            "data yang tersedia."
-        ),
-        height=140,
-    )
-
-    if st.button("ASK AI", type="primary"):
-
-        if not question.strip():
-            st.warning(
-                "Masukkan pertanyaan terlebih dahulu."
-            )
-        else:
-            st.info(
-                "AI engine belum dihubungkan. "
-                "Connection ke Gemini akan kita pasang "
-                "setelah fondasi aplikasi berhasil dijalankan."
-            )
 
 # ============================================================
 # SYSTEM
@@ -690,38 +805,77 @@ elif menu == "AI Marine Operations Copilot":
 
 elif menu == "System":
 
+    st.header("⚙️ System Control Centre")
+
+    st.subheader(
+        "System Status"
+    )
+
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        st.success(
+            "Application Online"
+        )
+
+    with c2:
+        st.success(
+            "Fleet Database Online"
+        )
+
+    with c3:
+        st.success(
+            "AI Framework Ready"
+        )
+
+    st.divider()
+
+    st.subheader(
+        "Architecture"
+    )
+
     st.markdown(
-        '<div class="section-title">System Configuration</div>',
-        unsafe_allow_html=True,
-    )
+        """
+        **Marine Operations Intelligence Centre**
 
-    st.subheader("Application Information")
+        Application Layer
+        → Streamlit
 
-    st.write(
-        "Application: MARINE OPERATIONS INTELLIGENCE CENTRE"
-    )
+        Intelligence Layer
+        → AI Marine Operations Copilot
 
-    st.write("Fleet Master: 21 vessels")
-    st.write("Crew Master: 200 employees")
-    st.write(
-        "Current Role: "
-        + st.session_state.role
+        Data Layer
+        → Fleet / Crew / Voyage / PMS / HSSE / Defects /
+        Certificates / Bunker / Cargo
+
+        Communication Layer
+        → WhatsApp Business Platform
+
+        Executive Layer
+        → SITREP / Risk Dashboard / Executive Reports
+        """
     )
 
     st.divider()
 
-    st.subheader("System Status")
+    st.subheader(
+        "Deployment Information"
+    )
 
-    st.success("Application foundation: ONLINE")
-    st.success("Fleet master: READY")
-    st.success("Navigation framework: READY")
-    st.info("AI Engine: PENDING INTEGRATION")
-    st.info("Database: PENDING INTEGRATION")
-    st.info("WhatsApp API: PENDING INTEGRATION")
+    st.write(
+        "Version: Intelligence Centre Foundation 1.0"
+    )
 
-    st.caption(
-        "Build progressively. Existing MARINE_OPERATION_VESSEL_PRO "
-        "is not modified by this application."
+    st.write(
+        "Fleet: 21 vessels"
+    )
+
+    st.write(
+        "Crew master: 200"
+    )
+
+    st.write(
+        f"Current role: {st.session_state.role}"
     )
 
 # ============================================================
@@ -732,6 +886,5 @@ st.divider()
 
 st.caption(
     "MARINE OPERATIONS INTELLIGENCE CENTRE • "
-    f"© {datetime.now().year} • "
-    "Operational Intelligence Platform"
+    "Fleet • HSSE • PMS • Voyage • Risk • AI Copilot"
 )

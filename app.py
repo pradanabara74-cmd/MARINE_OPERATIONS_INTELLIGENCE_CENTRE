@@ -122,27 +122,16 @@ if not st.session_state.logged_in:
         if submitted:
 
             # ------------------------------------------------
-            # DEMO LOGIN
-            # ------------------------------------------------
-            # Untuk deployment awal:
-            # username: admin
-            # password: marine
-            #
-            # Password production nanti dipindahkan ke Secrets.
-            # ------------------------------------------------
+            # LOGIN menggunakan Streamlit Secrets
+admin_username = st.secrets.get("ADMIN_USERNAME", "admin")
+admin_password = st.secrets.get("ADMIN_PASSWORD", "")
 
-            if username == "admin" and password == "marine":
-
-                st.session_state.logged_in = True
-                st.session_state.role = role
-
-                st.rerun()
-
-            else:
-
-                st.error(
-                    "Username atau password tidak benar."
-                )
+if username.strip() == admin_username and password == admin_password:
+    st.session_state.logged_in = True
+    st.session_state.role = role
+    st.rerun()
+else:
+    st.error("Username atau password tidak benar.")
 
     st.stop()
 

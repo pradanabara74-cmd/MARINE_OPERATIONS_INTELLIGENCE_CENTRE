@@ -2,7 +2,69 @@ import streamlit as st
 import pandas as pd
 import json
 from datetime import datetime
+from google import genai
+from google.genai import types
 
+
+def get_gemini_client():
+    try:
+        api_key = str(st.secrets.get("GEMINI_API_KEY", "")).strip()
+    except Exception:
+        api_key = ""
+
+    if not api_key:
+        return None
+
+    return genai.Client(api_key=api_key)
+
+
+def ask_gemini_marine_copilot(prompt, role):
+    client = get_gemini_client()
+
+    if client is None:
+        return "Gemini AI belum aktif. Silakan konfigurasi GEMINI_API_KEY di Streamlit Secrets."
+
+    system_instruction = f"""
+You are the MARINE OPERATIONS CO-PILOT for a marine fleet operations company.
+
+Operational role: {role}
+Fleet size: 21 vessels.
+
+Your responsibilities include:
+- Fleet operations
+- Voyage operations
+- HSSE / DPA
+- PMS / Maintenance
+- Defects
+- Certificates
+- Crew
+- Bunker
+- Cargo
+- Audit & Findings
+- Action Tracker
+- Operational risk
+
+Rules:
+1. Be concise, professional and operational.
+2. Give evidence-based recommendations.
+3. NEVER invent vessel status, voyage, defect, certificate, PMS, HSSE,
+   crew, bunker, cargo or other operational data.
+4. If required data is unavailable, clearly state: DATA BELUM TERSEDIA.
+5. For safety-critical matters, recommend appropriate escalation.
+6. Prioritize safety, compliance and operational continuity.
+"""
+
+    response = client.models.generate_content(
+        model="gemini-3.8-flash",
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            temperature=0.2,
+            max_output_tokens=1200,
+        ),
+    )
+
+    return response.text
 # ============================================================
 # MARINE OPERATIONS INTELLIGENCE CENTRE
 # ============================================================

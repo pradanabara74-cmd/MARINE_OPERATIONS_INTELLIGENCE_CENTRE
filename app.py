@@ -120,8 +120,6 @@ if not st.session_state.logged_in:
         )
 
         if submitted:
-
-            # ------------------------------------------------
             # LOGIN menggunakan Streamlit Secrets
 admin_username = st.secrets.get("ADMIN_USERNAME", "admin")
 admin_password = st.secrets.get("ADMIN_PASSWORD", "")

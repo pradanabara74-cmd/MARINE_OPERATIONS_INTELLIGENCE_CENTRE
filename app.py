@@ -672,7 +672,6 @@ elif menu == "Action Tracker":
 # ============================================================
 # AI MARINE COPILOT
 # ============================================================
-
 elif menu == "AI Marine Copilot":
 
     st.header("🤖 AI Marine Operations Copilot")
@@ -681,40 +680,27 @@ elif menu == "AI Marine Copilot":
         f"Decision support untuk {st.session_state.role}"
     )
 
+    st.subheader("Fleet Intelligence")
+
     st.info(
         """
-        AI Copilot akan menjadi pusat intelligence:
-        
-        • Fleet risk assessment
-        • Daily SITREP
-        • Top operational risks
-        • Defect prioritisation
-        • PMS risk
-        • Certificate risk
-        • HSSE/DPA analysis
-        • Voyage risk
-        • Executive briefing
-        • WhatsApp operational intelligence
-        """
-    )
-
-    st.subheader(
-        "Pertanyaan / Instruksi"
+AI Copilot sekarang terhubung dengan data Fleet 21.
+AI hanya boleh menggunakan data yang tersedia dan tidak boleh
+mengarang status kapal, voyage, defect, PMS, certificate,
+HSSE atau risk.
+"""
     )
 
     prompt = st.text_area(
-        "Tanyakan kepada Marine Operations Copilot",
+        "Pertanyaan / Instruksi",
         placeholder=(
-            "Contoh: Buatkan ringkasan kondisi 21 kapal, "
-            "5 risiko tertinggi dan tindakan prioritas hari ini."
+            "Contoh: Buatkan Fleet Risk Assessment untuk 21 kapal "
+            "dan tunjukkan data gap yang harus segera dilengkapi."
         ),
         height=150,
     )
 
-    if st.button(
-        "ASK AI",
-        type="primary"
-    ):
+    if st.button("ASK AI", type="primary"):
 
         if not prompt.strip():
 
@@ -724,54 +710,110 @@ elif menu == "AI Marine Copilot":
 
         else:
 
-            # ------------------------------------------------
-            # AI PLACEHOLDER
-            # ------------------------------------------------
+            try:
 
-            response = f"""
-## MARINE OPERATIONS INTELLIGENCE ANALYSIS
+                # ==========================================
+                # FLEET 21 REAL DATA
+                # ==========================================
 
-**Role:** {st.session_state.role}
+                if (
+                    "VESSEL_DF" in globals()
+                    and hasattr(VESSEL_DF, "to_dict")
+                ):
 
-### Request
-{prompt}
+                    fleet_context = json.dumps(
+                        VESSEL_DF.to_dict(
+                            orient="records"
+                        ),
+                        ensure_ascii=False,
+                        indent=2,
+                        default=str,
+                    )
 
-### Current Database Facts
+                else:
 
-- Fleet: **21 vessels**
-- Crew master: **200 employees**
-- Active vessels recorded: **21**
-- Voyage records available: **0**
-- Defect records available: **0**
-- Certificate records available: **0**
-- PMS records available: **0**
-- HSSE findings available: **0**
+                    fleet_context = json.dumps(
+                        VESSEL_DATA,
+                        ensure_ascii=False,
+                        indent=2,
+                        default=str,
+                    )
 
-### Intelligence Assessment
+                # ==========================================
+                # FLEET INTELLIGENCE PROMPT
+                # ==========================================
 
-Saat ini belum tersedia cukup data operasional
-untuk menghasilkan risk ranking yang faktual.
+                fleet_prompt = f"""
+USER REQUEST:
+{prompt.strip()}
 
-**AI tidak akan mengarang data.**
+FLEET 21 OPERATIONAL DATA:
+{fleet_context}
 
-### Immediate Priority
+FLEET INTELLIGENCE RULES:
 
-1. Lengkapi voyage data.
-2. Lengkapi defect register.
-3. Lengkapi certificate register.
-4. Lengkapi PMS status.
-5. Lengkapi HSSE / DPA findings.
-6. Hubungkan operational reports / WhatsApp.
-7. Jalankan AI risk assessment setelah data tersedia.
+1. Analyze ONLY the supplied Fleet 21 data.
 
-### Executive Decision
+2. NEVER invent:
+- vessel status
+- vessel position
+- voyage
+- defect
+- PMS condition
+- certificate condition
+- HSSE finding
+- crew condition
+- bunker data
+- cargo data
+- operational risk
 
-Data gap saat ini merupakan risiko informasi.
-Prioritas pertama adalah membangun single source of truth
-untuk seluruh 21 kapal.
+3. If information is missing, unavailable, or marked
+"Data belum tersedia", "Tidak ada data", or
+"Belum dinilai", state clearly:
+
+DATA BELUM TERSEDIA.
+
+4. Do not create a risk ranking when the supplied data
+does not contain enough factual risk information.
+
+5. Separate the answer into:
+
+FLEET SUMMARY
+RISK ASSESSMENT
+TOP PRIORITIES
+DATA GAPS
+RECOMMENDED ACTIONS
+
+6. For safety-critical matters, recommend escalation
+to the appropriate responsible person.
+
+7. Be concise and operational.
+
+8. Never present assumptions as facts.
 """
 
-            st.markdown(response)
+                with st.spinner(
+                    "Gemini sedang menganalisis Fleet 21..."
+                ):
+
+                    answer = ask_gemini_marine_copilot(
+                        fleet_prompt,
+                        st.session_state.role,
+                    )
+
+                st.markdown(
+                    "### 🚢 Fleet Intelligence Analysis"
+                )
+
+                st.markdown(answer)
+
+            except Exception as e:
+
+                st.error(
+                    f"Gemini gagal memproses Fleet 21: {e}"
+                )
+
+        
 
 # ============================================================
 # EXECUTIVE REPORTS

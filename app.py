@@ -523,19 +523,126 @@ elif menu == "HSSE / DPA":
 # ============================================================
 # PMS
 # ============================================================
-
 elif menu == "PMS / Maintenance":
 
     st.header("🔧 PMS / Maintenance Intelligence")
 
-    st.metric(
-        "Maintenance Records",
-        "0"
+    st.caption(
+        "PMS Intelligence menganalisis data maintenance yang tersedia. "
+        "Tidak ada data maintenance yang akan dibuat atau diasumsikan oleh sistem."
     )
 
-    st.warning(
-        "Belum ada PMS record."
+    uploaded_pms = st.file_uploader(
+        "Upload PMS / Maintenance Data (CSV)",
+        type=["csv"],
+        key="pms_upload",
     )
+
+    if uploaded_pms is None:
+
+        st.metric("Maintenance Records", "0")
+
+        st.warning(
+            "DATA BELUM TERSEDIA — belum ada PMS / Maintenance data."
+        )
+
+        st.info(
+            """
+            Format CSV yang disarankan:
+
+            vessel,maintenance_task,due_date,status,priority,remarks
+
+            Contoh nilai status:
+            Planned / Due / Overdue / Completed
+
+            Contoh priority:
+            Critical / High / Medium / Low
+            """
+        )
+
+    else:
+
+        try:
+            pms_df = pd.read_csv(uploaded_pms)
+
+            st.metric(
+                "Maintenance Records",
+                len(pms_df)
+            )
+
+            st.subheader("PMS / Maintenance Records")
+            st.dataframe(
+                pms_df,
+                use_container_width=True
+            )
+
+            st.subheader("PMS Intelligence")
+
+            if st.button(
+                "ANALYZE PMS",
+                type="primary",
+                key="analyze_pms",
+            ):
+
+                pms_context = json.dumps(
+                    pms_df.to_dict(
+                        orient="records"
+                    ),
+                    ensure_ascii=False,
+                    indent=2,
+                    default=str,
+                )
+
+                pms_prompt = f"""
+USER REQUEST:
+Analyze the supplied PMS / Maintenance data.
+
+PMS / MAINTENANCE DATA:
+{pms_context}
+
+PMS INTELLIGENCE RULES:
+- Analyze ONLY the supplied PMS data.
+- NEVER invent maintenance records.
+- NEVER invent due dates, overdue status, running hours,
+  maintenance intervals, vessel condition or priority.
+- If required information is missing, state:
+  DATA BELUM TERSEDIA.
+- Identify overdue maintenance ONLY when the supplied data
+  explicitly supports an overdue assessment.
+- Identify critical maintenance ONLY when the supplied
+  priority/status/data supports it.
+- Clearly separate:
+  FACTS
+  DATA GAPS
+  MAINTENANCE RISK
+  PRIORITY ACTIONS
+- Safety and compliance issues must be escalated appropriately.
+"""
+
+                with st.spinner(
+                    "Gemini sedang menganalisis PMS..."
+                ):
+
+                    pms_answer = ask_gemini_marine_copilot(
+                        pms_prompt,
+                        st.session_state.get(
+                            "role",
+                            "Marine Superintendent",
+                        ),
+                    )
+
+                st.markdown(
+                    "### PMS Maintenance Intelligence Analysis"
+                )
+
+                st.markdown(pms_answer)
+
+        except Exception as e:
+
+            st.error(
+                f"Gagal membaca PMS data: {e}"
+            )
+
 
 # ============================================================
 # DEFECTS

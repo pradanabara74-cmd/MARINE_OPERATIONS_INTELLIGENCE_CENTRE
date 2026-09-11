@@ -599,12 +599,11 @@ attention_mask = delayed_mask | remarks_text.str.contains(
 delayed_count = int(delayed_mask.sum())
 attention_count = int(attention_mask.sum())
 
-        st.markdown("### 📊 Voyage Intelligence")
+st.markdown("### 📊 Voyage Intelligence")
 
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            st.metric(
+col1, col2, col3 = st.columns(3)
+with col1:
+        st.metric(
                 "Voyage Records",
                 len(voyage_df),
             )

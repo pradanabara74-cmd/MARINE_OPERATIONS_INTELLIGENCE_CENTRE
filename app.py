@@ -581,24 +581,23 @@ elif menu == "Voyage Operations":
             )
 
         # Deteksi voyage delay / exception
-        delayed_mask = status_text.str.contains(
-            r"delay|delayed|cancelled|cancel|hold",
-            regex=True,
-            na=False,
-        )
+delayed_mask = status_text.isin(
+    ["delayed", "cancelled", "cancel", "hold"]
+) | status_text.str.contains(
+    r"delay|delayed|cancelled|cancel|hold",
+    regex=True,
+    na=False,
+)
 
-        # Deteksi attention berdasarkan status ATAU remarks
-        attention_mask = (
-            delayed_mask
-            | remarks_text.str.contains(
-                r"delay|delayed|risk|hold|cancel|weather|abnormal",
-                regex=True,
-                na=False,
-            )
-        )
+# Deteksi attention berdasarkan status ATAU remarks
+attention_mask = delayed_mask | remarks_text.str.contains(
+    r"delay|delayed|risk|hold|cancel|weather|abnormal",
+    regex=True,
+    na=False,
+)
 
-        delayed_count = int(delayed_mask.sum())
-        attention_count = int(attention_mask.sum())
+delayed_count = int(delayed_mask.sum())
+attention_count = int(attention_mask.sum())
 
         st.markdown("### 📊 Voyage Intelligence")
 

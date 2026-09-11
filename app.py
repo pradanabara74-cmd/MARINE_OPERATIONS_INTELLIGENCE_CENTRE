@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import json
+import time
 from datetime import datetime
 from google import genai
 from google.genai import types
@@ -54,17 +55,33 @@ Rules:
 6. Prioritize safety, compliance and operational continuity.
 """
 
-    response = client.models.generate_content(
-        model="gemini-3.7-flash",
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            system_instruction=system_instruction,
-            temperature=0.2,
-            max_output_tokens=1200,
-        ),
-    )
+    last_error = None
 
-    return response.text
+    for attempt in range(3):
+        try:
+            response = client.models.generate_content(
+                model="gemini-3.7-flash",
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    temperature=0.2,
+                    max_output_tokens=1200,
+                ),
+            )
+
+            return response.text
+
+        except Exception as e:
+            last_error = e
+            error_text = str(e)
+
+            if "503" not in error_text and "UNAVAILABLE" not in error_text:
+                raise
+
+            if attempt < 2:
+                time.sleep(3 * (attempt + 1))
+
+    raise last_error
 # ============================================================
 # MARINE OPERATIONS INTELLIGENCE CENTRE
 # ============================================================

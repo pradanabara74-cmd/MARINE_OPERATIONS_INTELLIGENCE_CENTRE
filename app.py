@@ -1322,25 +1322,224 @@ elif menu == "Bunker":
 
     st.header("⛽ Bunker Intelligence")
 
-    c1, c2, c3 = st.columns(3)
+    st.caption(
+        "Bunker Intelligence menganalisis data bunker yang tersedia. "
+        "Tidak ada konsumsi, quantity, ROB atau alert yang akan dibuat "
+        "atau diasumsikan oleh sistem."
+    )
 
-    with c1:
-        st.metric(
-            "Vessels",
-            "21"
+    uploaded_bunker = st.file_uploader(
+        "Upload Bunker Data (CSV)",
+        type=["csv"],
+        key="bunker_upload",
+    )
+
+    if uploaded_bunker is None:
+
+        c1, c2, c3 = st.columns(3)
+
+        with c1:
+            st.metric("Vessels", "21")
+
+        with c2:
+            st.metric("Bunker Reports", "0")
+
+        with c3:
+            st.metric("Consumption Alerts", "0")
+
+        st.warning(
+            "DATA BELUM TERSEDIA — belum ada bunker data."
         )
 
-    with c2:
-        st.metric(
-            "Bunker Reports",
-            "0"
+        st.info(
+            """
+            Format CSV yang disarankan:
+
+            vessel,date,fuel_type,quantity_mt,rob_mt,consumption_mt_day,remarks
+
+            Contoh fuel_type:
+            MGO / HFO / VLSFO
+
+            Data harus berasal dari laporan bunker aktual.
+            """
         )
 
-    with c3:
-        st.metric(
-            "Consumption Alerts",
-            "0"
-        )
+    else:
+
+        try:
+            bunker_df = pd.read_csv(uploaded_bunker)
+
+        except Exception as e:
+
+            st.error(
+                f"Gagal membaca file Bunker/CSV: {e}"
+            )
+
+        else:
+
+            st.metric(
+                "Bunker Reports",
+                len(bunker_df)
+            )
+
+            st.subheader("Bunker Records")
+
+            st.dataframe(
+                bunker_df,
+                use_container_width=True
+            )
+
+            st.subheader("Bunker Intelligence")
+
+            alert_count = 0
+
+            if "remarks" in bunker_df.columns:
+
+                alert_count = bunker_df["remarks"].astype(
+                    str
+                ).str.contains(
+                    "alert|low|high consumption|abnormal",
+                    case=False,
+                    na=False
+                ).sum()
+
+            elif "consumption_mt_day" in bunker_df.columns:
+
+                values = pd.to_numeric(
+                    bunker_df["consumption_mt_day"],
+                    errors="coerce"
+                )
+
+                if values.notna().any():
+
+                    average_consumption = values.mean()
+
+                    alert_count = (
+                        values >
+                        average_consumption * 1.20
+                    ).sum()
+
+            c1, c2 = st.columns(2)
+
+            with c1:
+                st.metric(
+                    "Bunker Reports",
+                    len(bunker_df)
+                )
+
+            with c2:
+                st.metric(
+                    "Consumption Alerts",
+                    int(alert_count)
+                )
+
+            if alert_count > 0:
+
+                st.warning(
+                    f"⚠️ {int(alert_count)} bunker record "
+                    "memerlukan review."
+                )
+
+            if st.button(
+                "ANALYZE BUNKER",
+                type="primary",
+                key="analyze_bunker",
+            ):
+
+                bunker_context = json.dumps(
+                    bunker_df.to_dict(
+                        orient="records"
+                    ),
+                    ensure_ascii=False,
+                    indent=2,
+                    default=str,
+                )
+
+                bunker_prompt = f"""
+USER REQUEST:
+Analyze the supplied Bunker data for marine fleet operations.
+
+BUNKER DATA:
+{bunker_context}
+
+BUNKER INTELLIGENCE RULES:
+
+- Analyze ONLY the supplied bunker data.
+- NEVER invent fuel quantity.
+- NEVER invent ROB.
+- NEVER invent fuel consumption.
+- NEVER invent bunker price.
+- NEVER invent bunker delivery.
+- NEVER invent vessel operating condition.
+- NEVER invent fuel shortage.
+- Identify abnormal consumption ONLY when the supplied
+  data supports the assessment.
+- Identify low ROB ONLY when the supplied data explicitly
+  contains sufficient ROB information.
+- If required information is missing, state:
+  DATA BELUM TERSEDIA.
+
+Clearly separate:
+
+FACTS
+DATA GAPS
+BUNKER RISK
+CONSUMPTION ALERTS
+PRIORITY ACTIONS
+
+Prioritize:
+1. Safety
+2. Operational continuity
+3. Fuel availability
+4. Abnormal consumption
+5. Data quality
+
+Do not make assumptions beyond the supplied data.
+"""
+
+                try:
+
+                    with st.spinner(
+                        "Gemini sedang menganalisis Bunker..."
+                    ):
+
+                        bunker_answer = (
+                            ask_gemini_marine_copilot(
+                                bunker_prompt,
+                                st.session_state.get(
+                                    "role",
+                                    "Marine Superintendent",
+                                ),
+                            )
+                        )
+
+                    st.markdown(
+                        "### Bunker Intelligence Assessment"
+                    )
+
+                    st.markdown(
+                        bunker_answer
+                    )
+
+                except Exception as e:
+
+                    if (
+                        "503" in str(e)
+                        or "UNAVAILABLE" in str(e)
+                    ):
+
+                        st.warning(
+                            "Data Bunker berhasil dimuat, "
+                            "tetapi Gemini sedang mengalami "
+                            "high demand. Silakan klik "
+                            "ANALYZE BUNKER lagi."
+                        )
+
+                    else:
+
+                        st.error(
+                            f"Gagal melakukan analisis Bunker: {e}"
+                        )
 
 # ============================================================
 # CARGO

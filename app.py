@@ -71,17 +71,29 @@ Rules:
 
             return response.text
 
-        except Exception as e:
-            last_error = e
-            error_text = str(e)
+       except Exception as e:
+    last_error = e
+    error_text = str(e)
 
-            if "503" not in error_text and "UNAVAILABLE" not in error_text:
-                raise
+    # Gemini quota habis
+    if "429" in error_text or "RESOURCE_EXHAUSTED" in error_text:
+        return (
+            "Gemini sedang mencapai batas quota penggunaan. "
+            "Data berhasil dimuat, tetapi analisis AI belum dapat dijalankan. "
+            "Silakan coba lagi setelah quota tersedia."
+        )
 
-            if attempt < 2:
-                time.sleep(3 * (attempt + 1))
+    # Gemini sedang high demand
+    if "503" in error_text or "UNAVAILABLE" in error_text:
+        if attempt < 2:
+            time.sleep(3 * (attempt + 1))
+            continue
+        return (
+            "Gemini sedang mengalami high demand. "
+            "Silakan klik tombol ANALYZE lagi beberapa saat kemudian."
+        )
 
-    raise last_error
+    raise 
 # ============================================================
 # MARINE OPERATIONS INTELLIGENCE CENTRE
 # ============================================================

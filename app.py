@@ -510,32 +510,161 @@ elif menu == "Voyage Operations":
 
 elif menu == "HSSE / DPA":
 
-    st.header("🛡️ HSSE / DPA Command")
+    st.header("🛡️ HSSE / DPA Intelligence")
 
-    c1, c2, c3 = st.columns(3)
-
-    with c1:
-        st.metric(
-            "Incidents",
-            "0"
-        )
-
-    with c2:
-        st.metric(
-            "Near Miss",
-            "0"
-        )
-
-    with c3:
-        st.metric(
-            "Open Findings",
-            "0"
-        )
-
-    st.info(
-        "Risk intelligence akan menggabungkan HSSE, defects, "
-        "certificates, PMS dan operational reports."
+    st.caption(
+        "HSSE Intelligence menganalisis data Incident, Near Miss, "
+        "Finding dan Safety Observation yang tersedia."
     )
+
+    uploaded_hsse = st.file_uploader(
+        "Upload HSSE / DPA Data (CSV)",
+        type=["csv"],
+        key="hsse_upload",
+    )
+
+    if uploaded_hsse is None:
+
+        c1, c2, c3 = st.columns(3)
+
+        with c1:
+            st.metric("Incidents", "0")
+
+        with c2:
+            st.metric("Near Miss", "0")
+
+        with c3:
+            st.metric("Open Findings", "0")
+
+        st.warning(
+            "DATA BELUM TERSEDIA — belum ada HSSE / DPA data."
+        )
+
+        st.info(
+            """
+            Format CSV yang disarankan:
+
+            vessel,event_date,event_type,severity,status,remarks
+
+            Contoh event_type:
+            Incident / Near Miss / Finding / Safety Observation
+
+            Contoh severity:
+            Critical / High / Medium / Low
+
+            Contoh status:
+            Open / Closed / Under Investigation
+            """
+        )
+
+    else:
+
+        try:
+            hsse_df = pd.read_csv(uploaded_hsse)
+
+        except Exception as e:
+
+            st.error(
+                f"Gagal membaca file HSSE / CSV: {e}"
+            )
+
+        else:
+
+            st.metric(
+                "HSSE Records",
+                len(hsse_df)
+            )
+
+            st.subheader("HSSE / DPA Records")
+
+            st.dataframe(
+                hsse_df,
+                use_container_width=True
+            )
+
+            st.subheader("HSSE Intelligence")
+
+            if st.button(
+                "ANALYZE HSSE",
+                type="primary",
+                key="analyze_hsse",
+            ):
+
+                hsse_context = json.dumps(
+                    hsse_df.to_dict(
+                        orient="records"
+                    ),
+                    ensure_ascii=False,
+                    indent=2,
+                    default=str,
+                )
+
+                hsse_prompt = f"""
+USER REQUEST:
+Analyze the supplied HSSE / DPA data.
+
+HSSE / DPA DATA:
+{hsse_context}
+
+HSSE INTELLIGENCE RULES:
+
+- Analyze ONLY the supplied HSSE data.
+- NEVER invent incidents, near misses, findings,
+  dates, severity, vessel condition or corrective actions.
+- If required information is missing, state:
+  DATA BELUM TERSEDIA.
+- Identify critical safety risks only when the supplied
+  data supports the assessment.
+- Identify open findings only from the supplied status.
+- Prioritize safety and regulatory compliance.
+- Clearly separate:
+
+FACTS
+
+DATA GAPS
+
+HSSE RISK
+
+PRIORITY ACTIONS
+
+ESCALATION REQUIRED
+"""
+
+                try:
+
+                    with st.spinner(
+                        "Gemini sedang menganalisis HSSE..."
+                    ):
+
+                        hsse_answer = ask_gemini_marine_copilot(
+                            hsse_prompt,
+                            st.session_state.get(
+                                "role",
+                                "Marine Superintendent",
+                            ),
+                        )
+
+                    st.markdown(
+                        "### HSSE / DPA Intelligence Assessment"
+                    )
+
+                    st.markdown(hsse_answer)
+
+                except Exception as e:
+
+                    if (
+                        "503" in str(e)
+                        or "UNAVAILABLE" in str(e)
+                    ):
+                        st.warning(
+                            "Data HSSE berhasil dimuat. "
+                            "Gemini sedang mengalami high demand. "
+                            "Silakan klik ANALYZE HSSE lagi."
+                        )
+                    else:
+                        st.error(
+                            f"Gagal menganalisis HSSE: {e}"
+                        )
 
 # ============================================================
 # PMS

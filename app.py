@@ -499,29 +499,209 @@ elif menu == "Crew 200":
 
 elif menu == "Voyage Operations":
 
-    st.header("🧭 Voyage Operations Intelligence")
+    st.header("⚓ Voyage Operations Intelligence")
 
-    st.warning(
-        "Belum ada voyage record pada database Intelligence Centre."
+    uploaded_voyage = st.file_uploader(
+        "Upload Voyage Data (CSV)",
+        type=["csv"],
+        key="voyage_upload",
     )
 
-    voyage_df = pd.DataFrame(
-        columns=[
-            "Vessel",
-            "Voyage",
-            "Origin",
-            "Destination",
-            "ETD",
-            "ETA",
-            "Status",
-        ]
-    )
+    if uploaded_voyage is None:
 
-    st.dataframe(
-        voyage_df,
-        use_container_width=True,
-        hide_index=True
-    )
+        voyage_df = pd.DataFrame(
+            columns=[
+                "vessel",
+                "voyage",
+                "origin",
+                "destination",
+                "ETD",
+                "ETA",
+                "status",
+                "remarks",
+            ]
+        )
+
+        st.info(
+            "Upload Voyage Data (CSV) untuk menjalankan "
+            "Voyage Operations Intelligence."
+        )
+
+    else:
+
+        try:
+            voyage_df = pd.read_csv(uploaded_voyage)
+
+        except Exception as e:
+
+            st.error(
+                f"Gagal membaca file Voyage/CSV: {e}"
+            )
+
+            voyage_df = pd.DataFrame()
+
+    if not voyage_df.empty:
+
+        st.markdown("### 📋 Voyage Records")
+
+        st.dataframe(
+            voyage_df,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        delayed_count = 0
+        attention_count = 0
+
+        if "status" in voyage_df.columns:
+
+            status_text = (
+                voyage_df["status"]
+                .fillna("")
+                .astype(str)
+                .str.lower()
+            )
+
+            delayed_count = int(
+                status_text.str.contains(
+                    "delay|delayed|cancelled|cancel|hold",
+                    regex=True,
+                    na=False,
+                ).sum()
+            )
+
+        if "remarks" in voyage_df.columns:
+
+            remarks_text = (
+                voyage_df["remarks"]
+                .fillna("")
+                .astype(str)
+                .str.lower()
+            )
+
+            attention_count = int(
+                remarks_text.str.contains(
+                    "delay|delayed|risk|hold|cancel|weather|abnormal",
+                    regex=True,
+                    na=False,
+                ).sum()
+            )
+
+        st.markdown("### 📊 Voyage Intelligence")
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.metric(
+                "Voyage Records",
+                len(voyage_df),
+            )
+
+        with col2:
+            st.metric(
+                "Delayed / Exception",
+                delayed_count,
+            )
+
+        with col3:
+            st.metric(
+                "Attention Required",
+                attention_count,
+            )
+
+        if st.button(
+            "ANALYZE VOYAGE",
+            type="primary",
+            key="analyze_voyage",
+        ):
+
+            voyage_context = voyage_df.to_csv(
+                index=False
+            )
+
+            voyage_prompt = f"""
+USER REQUEST:
+Analyze supplied Voyage Operations data for marine fleet operations.
+
+VOYAGE DATA:
+{voyage_context}
+
+VOYAGE INTELLIGENCE RULES:
+
+- Analyze ONLY the supplied voyage data.
+- NEVER invent vessel status, voyage number, origin,
+  destination, ETD, ETA, delay, weather condition,
+  port condition, vessel condition or voyage progress.
+- Identify delay or operational exception only when
+  explicitly supported by the supplied data.
+- If required information is missing, state:
+  DATA BELUM TERSEDIA.
+- Do not assume ETA, ETD or voyage progress.
+- Clearly separate:
+
+FACTS
+DATA GAPS
+VOYAGE RISK
+OPERATIONAL EXCEPTIONS
+PRIORITY ACTIONS
+
+- Prioritize safety, operational continuity,
+  voyage execution and compliance.
+- Do not make assumptions beyond supplied data.
+"""
+
+            try:
+
+                with st.spinner(
+                    "Gemini sedang menganalisis Voyage Operations..."
+                ):
+
+                    voyage_answer = ask_gemini_marine_copilot(
+                        voyage_prompt,
+                        st.session_state.get(
+                            "role",
+                            "Marine Superintendent",
+                        ),
+                    )
+
+                st.markdown(
+                    "### 🧠 Voyage Intelligence Assessment"
+                )
+
+                st.markdown(voyage_answer)
+
+            except Exception as e:
+
+                error_text = str(e)
+
+                if (
+                    "429" in error_text
+                    or "RESOURCE_EXHAUSTED" in error_text
+                ):
+
+                    st.warning(
+                        "Data Voyage berhasil dimuat, tetapi "
+                        "Gemini sedang mencapai batas quota. "
+                        "Silakan klik ANALYZE VOYAGE lagi "
+                        "setelah quota tersedia."
+                    )
+
+                elif (
+                    "503" in error_text
+                    or "UNAVAILABLE" in error_text
+                ):
+
+                    st.warning(
+                        "Data Voyage berhasil dimuat, tetapi "
+                        "Gemini sedang mengalami high demand. "
+                        "Silakan klik ANALYZE VOYAGE lagi."
+                    )
+
+                else:
+
+                    st.error(
+                        f"Gagal melakukan analisis Voyage: {e}"
+                    )
 
 # ============================================================
 # HSSE / DPA

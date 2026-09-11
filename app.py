@@ -737,23 +737,265 @@ elif menu == "Defects":
 
     st.header("⚠️ Defect Intelligence")
 
-    defect_df = pd.DataFrame(
-        columns=[
-            "Vessel",
-            "Defect",
-            "Severity",
-            "Reported",
-            "Due Date",
-            "Status",
-            "Responsible",
-        ]
+    st.caption(
+        "Defect Intelligence menganalisis defect yang tersedia. "
+        "Tidak ada defect yang akan dibuat atau diasumsikan oleh sistem."
     )
 
-    st.dataframe(
-        defect_df,
-        use_container_width=True,
-        hide_index=True
+    uploaded_defects = st.file_uploader(
+        "Upload Defect Data (CSV)",
+        type=["csv"],
+        key="defects_upload",
     )
+
+    if uploaded_defects is None:
+
+        st.metric("Defect Records", "0")
+
+        st.warning(
+            "DATA BELUM TERSEDIA — belum ada defect data."
+        )
+
+        st.info(
+            """
+            Format CSV yang disarankan:
+
+            vessel,defect,severity,reported,due_date,status,responsible
+
+            Severity:
+            Critical / High / Medium / Low
+
+            Status:
+            Open / In Progress / Closed
+            """
+        )
+
+    else:
+
+        try:
+            defect_df = pd.read_csv(uploaded_defects)
+
+        except Exception as e:
+
+            st.error(
+                f"Gagal membaca file Defects/CSV: {e}"
+            )
+
+        else:
+
+            st.metric(
+                "Defect Records",
+                len(defect_df)
+            )
+
+            st.subheader("Defect Records")
+
+            st.dataframe(
+                defect_df,
+                use_container_width=True,
+                hide_index=True
+            )
+
+            st.subheader("Defect Intelligence")
+
+            required_columns = [
+                "vessel",
+                "defect",
+                "severity",
+                "reported",
+                "due_date",
+                "status",
+                "responsible",
+            ]
+
+            missing_columns = [
+                col for col in required_columns
+                if col not in defect_df.columns
+            ]
+
+            if missing_columns:
+
+                st.error(
+                    "Kolom wajib belum lengkap: "
+                    + ", ".join(missing_columns)
+                )
+
+            else:
+
+                analysis_df = defect_df.copy()
+
+                analysis_df["due_date"] = pd.to_datetime(
+                    analysis_df["due_date"],
+                    errors="coerce"
+                )
+
+                analysis_df["status"] = (
+                    analysis_df["status"]
+                    .astype(str)
+                    .str.strip()
+                    .str.lower()
+                )
+
+                analysis_df["severity"] = (
+                    analysis_df["severity"]
+                    .astype(str)
+                    .str.strip()
+                    .str.lower()
+                )
+
+                today = pd.Timestamp(datetime.now().date())
+
+                overdue_df = analysis_df[
+                    (analysis_df["due_date"].notna())
+                    & (analysis_df["due_date"] < today)
+                    & (analysis_df["status"] != "closed")
+                ]
+
+                critical_df = analysis_df[
+                    (analysis_df["severity"] == "critical")
+                    & (analysis_df["status"] != "closed")
+                ]
+
+                high_df = analysis_df[
+                    (analysis_df["severity"] == "high")
+                    & (analysis_df["status"] != "closed")
+                ]
+
+                open_df = analysis_df[
+                    analysis_df["status"].isin(
+                        ["open", "in progress"]
+                    )
+                ]
+
+                st.markdown("### Defect Summary")
+
+                col1, col2, col3, col4 = st.columns(4)
+
+                with col1:
+                    st.metric(
+                        "Total Defects",
+                        len(analysis_df)
+                    )
+
+                with col2:
+                    st.metric(
+                        "Open / In Progress",
+                        len(open_df)
+                    )
+
+                with col3:
+                    st.metric(
+                        "Overdue",
+                        len(overdue_df)
+                    )
+
+                with col4:
+                    st.metric(
+                        "Critical",
+                        len(critical_df)
+                    )
+
+                st.markdown("### Critical Defects")
+
+                if critical_df.empty:
+
+                    st.info(
+                        "Tidak ada Critical Defect aktif "
+                        "berdasarkan data yang diberikan."
+                    )
+
+                else:
+
+                    st.dataframe(
+                        critical_df[
+                            [
+                                "vessel",
+                                "defect",
+                                "severity",
+                                "due_date",
+                                "status",
+                                "responsible",
+                            ]
+                        ],
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+                st.markdown("### Overdue Defects")
+
+                if overdue_df.empty:
+
+                    st.info(
+                        "Tidak ada Overdue Defect aktif "
+                        "berdasarkan data yang diberikan."
+                    )
+
+                else:
+
+                    st.dataframe(
+                        overdue_df[
+                            [
+                                "vessel",
+                                "defect",
+                                "severity",
+                                "due_date",
+                                "status",
+                                "responsible",
+                            ]
+                        ],
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+                st.markdown("### High Severity Defects")
+
+                if high_df.empty:
+
+                    st.info(
+                        "Tidak ada High Severity Defect aktif."
+                    )
+
+                else:
+
+                    st.dataframe(
+                        high_df[
+                            [
+                                "vessel",
+                                "defect",
+                                "severity",
+                                "due_date",
+                                "status",
+                                "responsible",
+                            ]
+                        ],
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+                st.markdown("### Defect Intelligence Assessment")
+
+                st.markdown(
+                    f"""
+**FACTS**
+
+- Total defect records: **{len(analysis_df)}**
+- Open / In Progress: **{len(open_df)}**
+- Overdue active defects: **{len(overdue_df)}**
+- Critical active defects: **{len(critical_df)}**
+- High severity active defects: **{len(high_df)}**
+
+**DATA GAPS**
+
+- Jika informasi teknis defect tidak tersedia: **DATA BELUM TERSEDIA.**
+- Jika root cause tidak tersedia: **DATA BELUM TERSEDIA.**
+- Jika corrective action tidak tersedia: **DATA BELUM TERSEDIA.**
+- Jika completion evidence tidak tersedia: **DATA BELUM TERSEDIA.**
+"""
+                )
+
+# =========================================================
+# CERTIFICATES
+# =========================================================
 
 # ============================================================
 # CERTIFICATES

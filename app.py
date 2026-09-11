@@ -726,6 +726,7 @@ Do not end the response after section 1.
                     )
 
         except Exception as e:
+            st.error(f"Gagal membaca PMS data: {e}")
 
 
 # ============================================================

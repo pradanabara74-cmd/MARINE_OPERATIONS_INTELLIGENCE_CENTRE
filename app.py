@@ -1005,10 +1005,185 @@ elif menu == "Certificates":
 
     st.header("📜 Certificate Intelligence")
 
-    st.info(
-        "Certificate tracking akan mencakup expiry, statutory, "
-        "class, flag dan operational certificates."
+    st.caption(
+        "Certificate Intelligence menganalisis expiry, statutory, "
+        "class, flag dan operational certificates berdasarkan data yang tersedia."
     )
+
+    uploaded_certificates = st.file_uploader(
+        "Upload Certificate Data (CSV)",
+        type=["csv"],
+        key="certificates_upload",
+    )
+
+    if uploaded_certificates is None:
+
+        st.metric("Certificate Records", "0")
+
+        st.warning(
+            "DATA BELUM TERSEDIA — belum ada certificate data."
+        )
+
+        st.info(
+            """
+            Format CSV yang disarankan:
+
+            vessel,certificate,certificate_type,issue_date,expiry_date,status,remarks
+
+            Contoh certificate_type:
+            Statutory / Class / Flag / Operational
+
+            Contoh status:
+            Valid / Expired / Suspended
+            """
+        )
+
+    else:
+
+        try:
+            certificates_df = pd.read_csv(
+                uploaded_certificates
+            )
+
+            certificates_df["expiry_date"] = pd.to_datetime(
+                certificates_df["expiry_date"],
+                errors="coerce"
+            )
+
+            today = pd.Timestamp.today().normalize()
+
+            certificates_df["days_to_expiry"] = (
+                certificates_df["expiry_date"] - today
+            ).dt.days
+
+            expired_df = certificates_df[
+                certificates_df["days_to_expiry"] < 0
+            ]
+
+            expiring_df = certificates_df[
+                (certificates_df["days_to_expiry"] >= 0)
+                & (certificates_df["days_to_expiry"] <= 30)
+            ]
+
+            st.metric(
+                "Certificate Records",
+                len(certificates_df)
+            )
+
+            st.subheader("Certificate Records")
+
+            st.dataframe(
+                certificates_df,
+                use_container_width=True
+            )
+
+            st.subheader("Certificate Intelligence")
+
+            c1, c2, c3 = st.columns(3)
+
+            with c1:
+                st.metric(
+                    "Expired",
+                    len(expired_df)
+                )
+
+            with c2:
+                st.metric(
+                    "Expiring ≤ 30 Days",
+                    len(expiring_df)
+                )
+
+            with c3:
+                st.metric(
+                    "Valid / Other",
+                    len(certificates_df)
+                    - len(expired_df)
+                    - len(expiring_df)
+                )
+
+            if len(expired_df) > 0:
+
+                st.subheader("🔴 Expired Certificates")
+
+                st.dataframe(
+                    expired_df,
+                    use_container_width=True
+                )
+
+            if len(expiring_df) > 0:
+
+                st.subheader("🟠 Certificates Expiring ≤ 30 Days")
+
+                st.dataframe(
+                    expiring_df,
+                    use_container_width=True
+                )
+
+            if st.button(
+                "ANALYZE CERTIFICATES",
+                type="primary",
+                key="analyze_certificates",
+            ):
+
+                certificate_context = json.dumps(
+                    certificates_df.to_dict(
+                        orient="records"
+                    ),
+                    ensure_ascii=False,
+                    indent=2,
+                    default=str,
+                )
+
+                certificate_prompt = f"""
+USER REQUEST:
+Analyze the supplied vessel certificate data.
+
+CERTIFICATE DATA:
+{certificate_context}
+
+CERTIFICATE INTELLIGENCE RULES:
+- Analyze ONLY the supplied certificate data.
+- NEVER invent certificate records.
+- NEVER invent expiry dates.
+- NEVER invent statutory, class, flag or operational status.
+- Identify expired certificates only from the supplied expiry_date.
+- Identify certificates expiring within 30 days only from the supplied data.
+- If required information is missing, state:
+  DATA BELUM TERSEDIA.
+- Clearly separate:
+  FACTS
+  EXPIRY RISK
+  COMPLIANCE RISK
+  DATA GAPS
+  PRIORITY ACTIONS
+- Safety and statutory compliance issues must be escalated appropriately.
+"""
+
+                with st.spinner(
+                    "Gemini sedang menganalisis certificates..."
+                ):
+
+                    certificate_answer = ask_gemini_marine_copilot(
+                        certificate_prompt,
+                        st.session_state.get(
+                            "role",
+                            "Marine Superintendent",
+                        ),
+                    )
+
+                st.markdown(
+                    "### Certificate Intelligence Assessment"
+                )
+
+                st.markdown(
+                    certificate_answer
+                )
+
+        except Exception as e:
+
+            st.error(
+                f"Gagal membaca Certificate data: {e}"
+            )
 
 # ============================================================
 # BUNKER

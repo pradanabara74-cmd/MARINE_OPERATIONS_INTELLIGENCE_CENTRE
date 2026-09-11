@@ -652,10 +652,24 @@ Do NOT omit any section, even if information is missing.
 - Recommend verification, completion, escalation or follow-up only when justified.
 - NEVER invent work orders, completion dates or technical findings.
 
-FINAL RULE:
-Always output sections 1, 2, 3 and 4.
-If information is unavailable, explicitly write:
-"DATA BELUM TERSEDIA."
+FINAL OUTPUT REQUIREMENT:
+
+You MUST complete ALL FOUR sections before ending the response.
+
+1. FACTS
+2. DATA GAPS
+3. MAINTENANCE RISK
+4. PRIORITY ACTIONS
+
+DO NOT stop after section 1 or section 2.
+
+Section 3 MUST contain a maintenance risk assessment based only on the supplied PMS data.
+
+Section 4 MUST contain practical priority actions based only on the supplied PMS data.
+
+If information is missing, write "DATA BELUM TERSEDIA." in the relevant section, but NEVER omit the section.
+
+The response is NOT COMPLETE until sections 1, 2, 3 and 4 are displayed.
 """
 
                 with st.spinner(

@@ -654,22 +654,20 @@ Do NOT omit any section, even if information is missing.
 
 FINAL OUTPUT REQUIREMENT:
 
-You MUST complete ALL FOUR sections before ending the response.
+You MUST complete BOTH sections before ending the response.
 
 1. FACTS
 2. DATA GAPS
-3. MAINTENANCE RISK
-4. PRIORITY ACTIONS
 
-DO NOT stop after section 1 or section 2.
+Do NOT add Maintenance Risk or Priority Actions.
 
-Section 3 MUST contain a maintenance risk assessment based only on the supplied PMS data.
+Section 1 MUST contain facts directly supported by the supplied PMS data.
 
-Section 4 MUST contain practical priority actions based only on the supplied PMS data.
+Section 2 MUST contain important PMS information that is missing from the supplied data.
 
-If information is missing, write "DATA BELUM TERSEDIA." in the relevant section, but NEVER omit the section.
+If information is missing, write "DATA BELUM TERSEDIA."
 
-The response is NOT COMPLETE until sections 1, 2, 3 and 4 are displayed.
+The response is NOT COMPLETE until sections 1 and 2 are displayed.
 """
 
                 with st.spinner(

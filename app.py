@@ -691,45 +691,41 @@ Do not end the response after section 1.
 
                 st.markdown(pms_answer)
 
-st.markdown("### 2. DATA GAPS")
+                st.markdown("### 2. DATA GAPS")
 
-required_pms_columns = [
-    "vessel",
-    "maintenance_task",
-    "due_date",
-    "status",
-    "priority",
-    "remarks",
-]
+                required_pms_columns = [
+                    "vessel",
+                    "maintenance_task",
+                    "due_date",
+                    "status",
+                    "priority",
+                    "remarks",
+                ]
 
-missing_columns = [
-    col for col in required_pms_columns
-    if col not in pms_df.columns
-]
+                missing_columns = [
+                    col for col in required_pms_columns
+                    if col not in pms_df.columns
+                ]
 
-if missing_columns:
-    st.warning(
-        "DATA BELUM TERSEDIA — kolom PMS berikut belum tersedia: "
-        + ", ".join(missing_columns)
-    )
-else:
-    st.markdown(
-        "- Running Hours & Maintenance Intervals: "
-        "DATA BELUM TERSEDIA."
-    )
-    st.markdown(
-        "- Work Order / Completion Date: DATA BELUM TERSEDIA."
-    )
-    st.markdown(
-        "- Technical Findings / Maintenance Condition: "
-        "DATA BELUM TERSEDIA."
-    )
+                if missing_columns:
+                    st.warning(
+                        "DATA BELUM TERSEDIA — kolom PMS berikut belum tersedia: "
+                        + ", ".join(missing_columns)
+                    )
+                else:
+                    st.markdown(
+                        "- Running Hours & Maintenance Intervals: "
+                        "DATA BELUM TERSEDIA."
+                    )
+                    st.markdown(
+                        "- Work Order / Completion Date: DATA BELUM TERSEDIA."
+                    )
+                    st.markdown(
+                        "- Technical Findings / Maintenance Condition: "
+                        "DATA BELUM TERSEDIA."
+                    )
 
-except Exception as e:
-
-            st.error(
-                f"Gagal membaca PMS data: {e}"
-            )
+        except Exception as e:
 
 
 # ============================================================

@@ -618,22 +618,44 @@ PMS / MAINTENANCE DATA:
 {pms_context}
 
 PMS INTELLIGENCE RULES:
-- Analyze ONLY the supplied PMS data.
-- NEVER invent maintenance records.
-- NEVER invent due dates, overdue status, running hours,
-  maintenance intervals, vessel condition or priority.
-- If required information is missing, state:
-  DATA BELUM TERSEDIA.
-- Identify overdue maintenance ONLY when the supplied data
-  explicitly supports an overdue assessment.
-- Identify critical maintenance ONLY when the supplied
-  priority/status/data supports it.
-- Clearly separate:
-  FACTS
-  DATA GAPS
-  MAINTENANCE RISK
-  PRIORITY ACTIONS
-- Safety and compliance issues must be escalated appropriately.
+
+IMPORTANT OUTPUT REQUIREMENT:
+Your response MUST contain ALL FOUR sections below.
+Do NOT stop after FACTS.
+Do NOT omit any section, even if information is missing.
+
+1. FACTS
+- Summarize only facts directly supported by the supplied PMS data.
+- Include total maintenance tasks.
+- Include status breakdown.
+- Identify overdue tasks and their vessels when supported by the data.
+
+2. DATA GAPS
+- State important PMS information that is missing from the supplied data.
+- Consider missing running hours, maintenance intervals, completion evidence,
+  responsible person, work order status, technical findings, and verification.
+- If a particular item is not required, say "Tidak ada gap material yang teridentifikasi."
+- NEVER invent missing information.
+
+3. MAINTENANCE RISK
+- Assess maintenance risk using ONLY the supplied status, priority,
+  due date and remarks.
+- Identify vessels/tasks with the highest maintenance risk.
+- Critical + Overdue items must receive the highest attention.
+- High + Overdue or High + Due items must be highlighted.
+- NEVER invent technical condition or equipment failure.
+
+4. PRIORITY ACTIONS
+- Give practical actions based ONLY on the supplied PMS data.
+- Prioritize overdue and critical maintenance first.
+- Identify the vessel and maintenance task whenever supported.
+- Recommend verification, completion, escalation or follow-up only when justified.
+- NEVER invent work orders, completion dates or technical findings.
+
+FINAL RULE:
+Always output sections 1, 2, 3 and 4.
+If information is unavailable, explicitly write:
+"DATA BELUM TERSEDIA."
 """
 
                 with st.spinner(

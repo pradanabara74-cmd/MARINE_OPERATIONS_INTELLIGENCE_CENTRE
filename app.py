@@ -668,6 +668,9 @@ Section 2 MUST contain important PMS information that is missing from the suppli
 If information is missing, write "DATA BELUM TERSEDIA."
 
 The response is NOT COMPLETE until sections 1 and 2 are displayed.
+IMPORTANT:
+Write section 2 immediately after section 1.
+Do not end the response after section 1.
 """
 
                 with st.spinner(
@@ -688,7 +691,41 @@ The response is NOT COMPLETE until sections 1 and 2 are displayed.
 
                 st.markdown(pms_answer)
 
-        except Exception as e:
+st.markdown("### 2. DATA GAPS")
+
+required_pms_columns = [
+    "vessel",
+    "maintenance_task",
+    "due_date",
+    "status",
+    "priority",
+    "remarks",
+]
+
+missing_columns = [
+    col for col in required_pms_columns
+    if col not in pms_df.columns
+]
+
+if missing_columns:
+    st.warning(
+        "DATA BELUM TERSEDIA — kolom PMS berikut belum tersedia: "
+        + ", ".join(missing_columns)
+    )
+else:
+    st.markdown(
+        "- Running Hours & Maintenance Intervals: "
+        "DATA BELUM TERSEDIA."
+    )
+    st.markdown(
+        "- Work Order / Completion Date: DATA BELUM TERSEDIA."
+    )
+    st.markdown(
+        "- Technical Findings / Maintenance Condition: "
+        "DATA BELUM TERSEDIA."
+    )
+
+except Exception as e:
 
             st.error(
                 f"Gagal membaca PMS data: {e}"

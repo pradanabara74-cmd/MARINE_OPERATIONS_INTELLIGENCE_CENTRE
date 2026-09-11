@@ -23,7 +23,10 @@ def ask_gemini_marine_copilot(prompt, role):
     client = get_gemini_client()
 
     if client is None:
-        return "Gemini AI belum aktif. Silakan konfigurasi GEMINI_API_KEY di Streamlit Secrets."
+        return (
+            "Gemini AI belum aktif. "
+            "Silakan konfigurasi GEMINI_API_KEY di Streamlit Secrets."
+        )
 
     system_instruction = f"""
 You are the MARINE OPERATIONS CO-PILOT for a marine fleet operations company.
@@ -71,29 +74,33 @@ Rules:
 
             return response.text
 
-       except Exception as e:
-    last_error = e
-    error_text = str(e)
+        except Exception as e:
+            last_error = e
+            error_text = str(e)
 
-    # Gemini quota habis
-    if "429" in error_text or "RESOURCE_EXHAUSTED" in error_text:
-        return (
-            "Gemini sedang mencapai batas quota penggunaan. "
-            "Data berhasil dimuat, tetapi analisis AI belum dapat dijalankan. "
-            "Silakan coba lagi setelah quota tersedia."
-        )
+            # Gemini quota habis
+            if "429" in error_text or "RESOURCE_EXHAUSTED" in error_text:
+                return (
+                    "Gemini sedang mencapai batas quota penggunaan. "
+                    "Data berhasil dimuat, tetapi analisis AI belum dapat "
+                    "dijalankan. Silakan coba lagi setelah quota tersedia."
+                )
 
-    # Gemini sedang high demand
-    if "503" in error_text or "UNAVAILABLE" in error_text:
-        if attempt < 2:
-            time.sleep(3 * (attempt + 1))
-            continue
-        return (
-            "Gemini sedang mengalami high demand. "
-            "Silakan klik tombol ANALYZE lagi beberapa saat kemudian."
-        )
+            # Gemini sedang high demand
+            if "503" in error_text or "UNAVAILABLE" in error_text:
+                if attempt < 2:
+                    time.sleep(3 * (attempt + 1))
+                    continue
 
-    raise 
+                return (
+                    "Gemini sedang mengalami high demand. "
+                    "Silakan klik ANALYZE lagi beberapa saat kemudian."
+                )
+
+            raise
+
+    if last_error is not None:
+        raise last_error
 # ============================================================
 # MARINE OPERATIONS INTELLIGENCE CENTRE
 # ============================================================

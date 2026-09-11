@@ -1545,41 +1545,194 @@ Do not make assumptions beyond the supplied data.
 # CARGO
 # ============================================================
 
+# ============================================================
+# CARGO
+# ============================================================
+
 elif menu == "Cargo":
 
     st.header("📦 Cargo Operations")
 
-    st.info(
-        "Cargo intelligence module siap dikembangkan untuk "
-        "cargo status, quantity, destination, operational risk "
-        "dan voyage linkage."
+    uploaded_cargo = st.file_uploader(
+        "Upload Cargo Data (CSV)",
+        type=["csv"],
+        key="cargo_upload",
     )
 
-# ============================================================
-# AUDIT
-# ============================================================
+    if uploaded_cargo is None:
 
-elif menu == "Audit & Findings":
+        cargo_df = pd.DataFrame(
+            columns=[
+                "vessel",
+                "cargo_date",
+                "cargo_type",
+                "quantity_mt",
+                "origin",
+                "destination",
+                "status",
+                "remarks",
+            ]
+        )
 
-    st.header("🔍 Audit & Findings")
+        st.info(
+            "Upload Cargo Data (CSV) untuk menjalankan "
+            "Cargo Intelligence."
+        )
 
-    audit_df = pd.DataFrame(
-        columns=[
-            "Finding ID",
-            "Vessel",
-            "Finding",
-            "Severity",
-            "Due Date",
-            "Status",
-            "Owner",
-        ]
-    )
+    else:
 
-    st.dataframe(
-        audit_df,
-        use_container_width=True,
-        hide_index=True
-    )
+        try:
+            cargo_df = pd.read_csv(uploaded_cargo)
+
+        except Exception as e:
+            st.error(f"Gagal membaca file Cargo/CSV: {e}")
+            cargo_df = pd.DataFrame()
+
+        if not cargo_df.empty:
+
+            st.subheader("📋 Cargo Records")
+
+            st.dataframe(
+                cargo_df,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            # ====================================================
+            # CARGO METRICS
+            # ====================================================
+
+            total_cargo = len(cargo_df)
+
+            delayed_cargo = 0
+
+            if "status" in cargo_df.columns:
+                delayed_cargo = int(
+                    cargo_df["status"]
+                    .astype(str)
+                    .str.contains(
+                        "delayed|delay",
+                        case=False,
+                        na=False,
+                    )
+                    .sum()
+                )
+
+            attention_cargo = 0
+
+            if "remarks" in cargo_df.columns:
+                attention_cargo = int(
+                    cargo_df["remarks"]
+                    .astype(str)
+                    .str.contains(
+                        "delay|delayed|shortage|damage|risk|abnormal",
+                        case=False,
+                        na=False,
+                    )
+                    .sum()
+                )
+
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                st.metric(
+                    "Cargo Records",
+                    total_cargo,
+                )
+
+            with col2:
+                st.metric(
+                    "Delayed Cargo",
+                    delayed_cargo,
+                )
+
+            with col3:
+                st.metric(
+                    "Attention Required",
+                    attention_cargo,
+                )
+
+            # ====================================================
+            # CARGO INTELLIGENCE
+            # ====================================================
+
+            if st.button(
+                "ANALYZE CARGO",
+                type="primary",
+                key="analyze_cargo",
+            ):
+
+                cargo_context = cargo_df.to_csv(
+                    index=False
+                )
+
+                cargo_prompt = f"""
+USER REQUEST:
+Analyze supplied Cargo data for marine fleet operations.
+
+CARGO DATA:
+{cargo_context}
+
+CARGO INTELLIGENCE RULES:
+- Analyze ONLY supplied cargo data.
+- NEVER invent cargo quantity, cargo type, origin,
+  destination, status, delay, damage, shortage,
+  vessel condition, ETA or voyage linkage.
+- Identify delay or cargo risk only when explicitly
+  supported by supplied data.
+- If required information is missing, state:
+  DATA BELUM TERSEDIA.
+- Clearly separate:
+
+FACTS
+DATA GAPS
+CARGO RISK
+PRIORITY ACTIONS
+
+- Prioritize safety, cargo integrity,
+  operational continuity and compliance.
+- Do not make assumptions beyond supplied data.
+"""
+
+                try:
+
+                    with st.spinner(
+                        "Gemini sedang menganalisis Cargo..."
+                    ):
+
+                        cargo_answer = ask_gemini_marine_copilot(
+                            cargo_prompt,
+                            st.session_state.get(
+                                "role",
+                                "Marine Superintendent",
+                            ),
+                        )
+
+                    st.markdown(
+                        "### Cargo Intelligence Assessment"
+                    )
+
+                    st.markdown(cargo_answer)
+
+                except Exception as e:
+
+                    if (
+                        "503" in str(e)
+                        or "UNAVAILABLE" in str(e)
+                    ):
+
+                        st.warning(
+                            "Data Cargo berhasil dimuat, "
+                            "tetapi Gemini sedang mengalami "
+                            "high demand. Silakan klik "
+                            "ANALYZE CARGO lagi."
+                        )
+
+                    else:
+
+                        st.error(
+                            f"Gagal melakukan analisis Cargo: {e}"
+                        )
 
 # ============================================================
 # ACTION TRACKER

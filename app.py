@@ -553,39 +553,47 @@ elif menu == "Voyage Operations":
         delayed_count = 0
         attention_count = 0
 
-        if "status" in voyage_df.columns:
+        # Normalisasi status dan remarks agar deteksi konsisten
+        status_text = pd.Series("", index=voyage_df.index)
+        remarks_text = pd.Series("", index=voyage_df.index)
 
+        if "status" in voyage_df.columns:
             status_text = (
                 voyage_df["status"]
                 .fillna("")
                 .astype(str)
+                .str.strip()
                 .str.lower()
             )
 
-            delayed_count = int(
-                status_text.str.contains(
-                    "delay|delayed|cancelled|cancel|hold",
-                    regex=True,
-                    na=False,
-                ).sum()
-            )
-
         if "remarks" in voyage_df.columns:
-
             remarks_text = (
                 voyage_df["remarks"]
                 .fillna("")
                 .astype(str)
+                .str.strip()
                 .str.lower()
             )
 
-            attention_count = int(
-                remarks_text.str.contains(
-                    "delay|delayed|risk|hold|cancel|weather|abnormal",
-                    regex=True,
-                    na=False,
-                ).sum()
+        # Deteksi voyage delay / exception
+        delayed_mask = status_text.str.contains(
+            r"delay|delayed|cancelled|cancel|hold",
+            regex=True,
+            na=False,
+        )
+
+        # Deteksi attention berdasarkan status ATAU remarks
+        attention_mask = (
+            delayed_mask
+            | remarks_text.str.contains(
+                r"delay|delayed|risk|hold|cancel|weather|abnormal",
+                regex=True,
+                na=False,
             )
+        )
+
+        delayed_count = int(delayed_mask.sum())
+        attention_count = int(attention_mask.sum())
 
         st.markdown("### 📊 Voyage Intelligence")
 

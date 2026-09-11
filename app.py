@@ -532,11 +532,6 @@ elif menu == "Voyage Operations":
         try:
             voyage_df = pd.read_csv(uploaded_voyage)
 
-voyage_df.columns = [
-    str(c).strip().lower()
-    for c in voyage_df.columns
-]
-
         except Exception as e:
 
             st.error(
@@ -544,6 +539,11 @@ voyage_df.columns = [
             )
 
             voyage_df = pd.DataFrame()
+            
+            voyage_df.columns = [
+    str(c).strip().lower()
+    for c in voyage_df.columns
+]
 
     if not voyage_df.empty:
 

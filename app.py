@@ -664,41 +664,198 @@ elif menu == "Fleet 21":
 
     selected_vessel = st.selectbox(
         "Pilih kapal",
-        FLEET
+        FLEET,
+        key="fleet21_vessel",
     )
 
-    vessel = VESSELS_DF[
+    vessel_rows = VESSELS_DF[
         VESSELS_DF["Vessel"] == selected_vessel
-    ].iloc[0]
+    ]
 
-    st.subheader(
-        f"Vessel Intelligence — {selected_vessel}"
-    )
+    if vessel_rows.empty:
 
-    a, b, c, d = st.columns(4)
-
-    with a:
-        st.metric(
-            "Status",
-            vessel["Status"]
+        st.warning(
+            "Data kapal belum tersedia."
         )
 
-    with b:
-        st.metric(
-            "Voyage",
-            "N/A"
+    else:
+
+        vessel = vessel_rows.iloc[0]
+
+        def fleet_value(column_name):
+            if column_name not in VESSELS_DF.columns:
+                return "N/A"
+
+            value = vessel[column_name]
+
+            if pd.isna(value):
+                return "N/A"
+
+            value = str(value).strip()
+
+            if value == "":
+                return "N/A"
+
+            if value.lower() in [
+                "data belum tersedia",
+                "tidak ada data",
+                "belum dinilai",
+                "n/a",
+                "na",
+            ]:
+                return "N/A"
+
+            return value
+
+        vessel_status = fleet_value("Status")
+        vessel_voyage = fleet_value("Voyage")
+        vessel_defect = fleet_value("Defect")
+        vessel_pms = fleet_value("PMS")
+        vessel_risk = fleet_value("Risk")
+
+        st.subheader(
+            f"Vessel Intelligence — {selected_vessel}"
         )
 
-    with c:
-        st.metric(
-            "Defect",
-            "N/A"
+        c1, c2, c3, c4, c5 = st.columns(5)
+
+        with c1:
+            st.metric(
+                "Status",
+                vessel_status,
+            )
+
+        with c2:
+            st.metric(
+                "Voyage",
+                vessel_voyage,
+            )
+
+        with c3:
+            st.metric(
+                "Defect",
+                vessel_defect,
+            )
+
+        with c4:
+            st.metric(
+                "PMS",
+                vessel_pms,
+            )
+
+        with c5:
+            st.metric(
+                "Risk",
+                vessel_risk,
+            )
+
+        # ----------------------------------------------------
+        # DETERMINISTIC VESSEL INTELLIGENCE
+        # ----------------------------------------------------
+
+        voyage_text = vessel_voyage.lower()
+        defect_text = vessel_defect.lower()
+        pms_text = vessel_pms.lower()
+        risk_text = vessel_risk.lower()
+
+        attention_items = []
+
+        if any(
+            keyword in voyage_text
+            for keyword in [
+                "delay",
+                "delayed",
+                "late",
+                "exception",
+                "hold",
+                "cancel",
+            ]
+        ):
+            attention_items.append(
+                "Voyage membutuhkan perhatian."
+            )
+
+        if (
+            vessel_defect != "N/A"
+            and any(
+                keyword in defect_text
+                for keyword in [
+                    "open",
+                    "critical",
+                    "high",
+                    "defect",
+                    "overdue",
+                ]
+            )
+        ):
+            attention_items.append(
+                "Terdapat informasi defect "
+                "yang perlu ditinjau."
+            )
+
+        if (
+            vessel_pms != "N/A"
+            and any(
+                keyword in pms_text
+                for keyword in [
+                    "overdue",
+                    "due",
+                    "critical",
+                    "high",
+                ]
+            )
+        ):
+            attention_items.append(
+                "Terdapat perhatian pada PMS."
+            )
+
+        if any(
+            keyword in risk_text
+            for keyword in [
+                "critical",
+                "high",
+                "medium",
+                "attention",
+            ]
+        ):
+            attention_items.append(
+                f"Risk tercatat sebagai: {vessel_risk}."
+            )
+
+        st.markdown(
+            "### Operational Assessment"
         )
 
-    with d:
-        st.metric(
-            "Risk",
-            "N/A"
+        if attention_items:
+
+            for item in attention_items:
+                st.warning(item)
+
+        elif (
+            vessel_voyage == "N/A"
+            and vessel_defect == "N/A"
+            and vessel_pms == "N/A"
+            and vessel_risk == "N/A"
+        ):
+
+            st.info(
+                "Data operasional kapal belum cukup "
+                "untuk menentukan risk assessment. "
+                "Status kapal tersedia, tetapi Voyage, "
+                "Defect, PMS dan Risk masih DATA GAP."
+            )
+
+        else:
+
+            st.success(
+                "Tidak ditemukan operational exception "
+                "berdasarkan data yang tersedia."
+            )
+
+        st.caption(
+            "Assessment hanya menggunakan data yang "
+            "tersedia pada Fleet 21 dan tidak membuat "
+            "asumsi terhadap data yang belum tersedia."
         )
 
 # ============================================================

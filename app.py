@@ -696,7 +696,6 @@ PRIORITY ACTIONS
                         "Silakan klik ANALYZE VOYAGE lagi "
                         "setelah quota tersedia."
                     )
-
                 elif (
                     "503" in error_text
                     or "UNAVAILABLE" in error_text

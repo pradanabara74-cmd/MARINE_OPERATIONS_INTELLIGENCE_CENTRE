@@ -333,26 +333,25 @@ if menu == "Dashboard":
         "Fleet status, voyage exceptions and operational priorities."
     )
 
-    # =========================================================
-    # COMMAND METRICS
-    # =========================================================
+    # =====================================================
+    # DASHBOARD DATA
+    # =====================================================
 
-    fleet_count = len(VESSELS_DF)
-
-    active_vessels = fleet_count
+    fleet_count = 21
+    active_vessels = 21
 
     voyage_records = st.session_state.get(
         "voyage_records",
         0
     )
 
-    voyage_delayed = st.session_state.get(
-        "voyage_delayed",
+    delayed_exception = st.session_state.get(
+        "delayed_exception",
         0
     )
 
-    voyage_attention = st.session_state.get(
-        "voyage_attention",
+    attention_required = st.session_state.get(
+        "attention_required",
         0
     )
 
@@ -381,24 +380,9 @@ if menu == "Dashboard":
         0
     )
 
-    # =========================================================
-    # RISK / ALERT LOGIC
-    # =========================================================
-
-    critical_alerts = (
-        voyage_attention
-        + open_defects
-        + hsse_findings
-    )
-
-    if critical_alerts > 0:
-        overall_status = "ATTENTION REQUIRED"
-    else:
-        overall_status = "OPERATIONAL"
-
-    # =========================================================
-    # TOP COMMAND METRICS
-    # =========================================================
+    # =====================================================
+    # COMMAND STATUS
+    # =====================================================
 
     st.markdown("### 🚨 Command Status")
 
@@ -419,40 +403,58 @@ if menu == "Dashboard":
     with col3:
         st.metric(
             "Voyage Attention",
-            voyage_attention
+            attention_required
         )
 
     with col4:
+
+        critical_alerts = (
+            delayed_exception
+            + open_defects
+            + hsse_findings
+            + pending_actions
+        )
+
         st.metric(
             "Critical Alerts",
             critical_alerts
         )
 
+    # =====================================================
+    # OPERATIONAL INTELLIGENCE
+    # =====================================================
+
     st.markdown("### 🧠 Operational Intelligence")
 
-    # =========================================================
-    # OVERALL STATUS
-    # =========================================================
-
-    if overall_status == "ATTENTION REQUIRED":
-
-        st.warning(
-            "⚠️ OPERATIONAL STATUS: ATTENTION REQUIRED\n\n"
-            "Terdapat operational exception atau "
-            "risk indicator yang membutuhkan review."
-        )
-
-    else:
+    if critical_alerts == 0:
 
         st.success(
-            "✅ OPERATIONAL STATUS: OPERATIONAL\n\n"
+            "OPERATIONAL STATUS: OPERATIONAL"
+        )
+
+        st.write(
             "Tidak terdapat critical operational alert "
             "berdasarkan data yang tersedia."
         )
 
-    # =========================================================
-    # INTELLIGENCE SUMMARY
-    # =========================================================
+    elif critical_alerts > 0:
+
+        st.warning(
+            "OPERATIONAL STATUS: ATTENTION REQUIRED"
+        )
+
+        st.write(
+            f"Terdapat {critical_alerts} operational "
+            "item yang membutuhkan perhatian."
+        )
+
+    # =====================================================
+    # INTELLIGENCE OVERVIEW
+    # =====================================================
+
+    st.markdown(
+        "### 📋 Fleet & Operational Intelligence Overview"
+    )
 
     dashboard_df = pd.DataFrame(
         {
@@ -473,65 +475,68 @@ if menu == "Dashboard":
                 fleet_count,
                 active_vessels,
                 voyage_records,
-                voyage_delayed,
-                voyage_attention,
+                delayed_exception,
+                attention_required,
                 open_defects,
                 certificate_records,
                 pms_records,
                 hsse_findings,
                 pending_actions,
             ],
-
-            "Status": [
-                "ACTIVE",
-                "ACTIVE",
-                (
-                    "DATA AVAILABLE"
-                    if voyage_records > 0
-                    else "DATA GAP"
-                ),
-                (
-                    "ATTENTION"
-                    if voyage_delayed > 0
-                    else "NORMAL"
-                ),
-                (
-                    "ATTENTION"
-                    if voyage_attention > 0
-                    else "NORMAL"
-                ),
-                (
-                    "ATTENTION"
-                    if open_defects > 0
-                    else "DATA GAP"
-                ),
-                (
-                    "DATA AVAILABLE"
-                    if certificate_records > 0
-                    else "DATA GAP"
-                ),
-                (
-                    "DATA AVAILABLE"
-                    if pms_records > 0
-                    else "DATA GAP"
-                ),
-                (
-                    "ATTENTION"
-                    if hsse_findings > 0
-                    else "DATA GAP"
-                ),
-                (
-                    "ACTION REQUIRED"
-                    if pending_actions > 0
-                    else "DATA GAP"
-                ),
-            ],
         }
     )
 
-    st.subheader(
-        "Fleet & Operational Intelligence Overview"
-    )
+    # =====================================================
+    # STATUS LOGIC
+    # =====================================================
+
+    status_list = []
+
+    for indicator, value in zip(
+        dashboard_df["Indicator"],
+        dashboard_df["Value"]
+    ):
+
+        if indicator in [
+            "Fleet",
+            "Active Vessel",
+        ]:
+
+            status = "ACTIVE"
+
+        elif indicator == "Voyage Records":
+
+            status = (
+                "AVAILABLE"
+                if value > 0
+                else "DATA GAP"
+            )
+
+        elif indicator in [
+            "Delayed / Exception",
+            "Attention Required",
+            "Open Defects",
+            "HSSE Findings",
+            "Pending Actions",
+        ]:
+
+            status = (
+                "ATTENTION"
+                if value > 0
+                else "NORMAL"
+            )
+
+        else:
+
+            status = (
+                "AVAILABLE"
+                if value > 0
+                else "DATA GAP"
+            )
+
+        status_list.append(status)
+
+    dashboard_df["Status"] = status_list
 
     st.dataframe(
         dashboard_df,
@@ -539,92 +544,104 @@ if menu == "Dashboard":
         hide_index=True
     )
 
-    # =========================================================
-    # PRIORITY INTELLIGENCE
-    # =========================================================
+    # =====================================================
+    # OPERATIONAL PRIORITY
+    # =====================================================
 
-    st.subheader(
-        "🎯 Operational Priority"
-    )
+    st.markdown("### 🎯 Operational Priority")
 
-    if voyage_attention > 0:
+    if attention_required > 0:
 
-        st.error(
-            f"🔴 VOYAGE PRIORITY: "
-            f"{voyage_attention} voyage record(s) "
-            f"require operational attention."
+        st.warning(
+            f"VOYAGE PRIORITY: "
+            f"{attention_required} voyage record(s) "
+            "require operational attention."
         )
 
-    elif voyage_records == 0:
+    elif delayed_exception > 0:
+
+        st.warning(
+            f"VOYAGE EXCEPTION: "
+            f"{delayed_exception} delayed / exception record(s) detected."
+        )
+
+    elif open_defects > 0:
+
+        st.warning(
+            f"DEFECT PRIORITY: "
+            f"{open_defects} open defect(s) detected."
+        )
+
+    elif hsse_findings > 0:
+
+        st.warning(
+            f"HSSE PRIORITY: "
+            f"{hsse_findings} HSSE finding(s) detected."
+        )
+
+    elif pending_actions > 0:
+
+        st.warning(
+            f"ACTION PRIORITY: "
+            f"{pending_actions} pending action(s) detected."
+        )
+
+    else:
 
         st.info(
-            "ℹ️ VOYAGE DATA GAP: "
-            "Belum ada Voyage Operations data "
-            "yang tersedia di Dashboard."
+            "Tidak terdapat operational priority "
+            "berdasarkan data yang tersedia."
+        )
+
+    # =====================================================
+    # INTELLIGENCE DATA COVERAGE
+    # =====================================================
+
+    st.markdown("### 🔎 Intelligence Data Coverage")
+
+    operational_domains = [
+        voyage_records,
+        open_defects,
+        certificate_records,
+        pms_records,
+        hsse_findings,
+        pending_actions,
+    ]
+
+    available_domains = sum(
+        1 for value in operational_domains
+        if value > 0
+    )
+
+    st.write(
+        f"Operational data domains available: "
+        f"{available_domains}/6"
+    )
+
+    if available_domains < 6:
+
+        st.info(
+            "Dashboard Intelligence hanya menggunakan "
+            "data operasional yang tersedia. "
+            "Jika suatu domain belum memiliki data, "
+            "sistem menandainya sebagai DATA GAP "
+            "dan tidak membuat asumsi."
         )
 
     else:
 
         st.success(
-            "🟢 VOYAGE OPERATIONS: "
-            "Tidak terdapat voyage exception "
-            "yang terdeteksi."
+            "Operational intelligence data coverage "
+            "tersedia pada seluruh domain utama."
         )
 
-    if open_defects > 0:
-
-        st.error(
-            f"🔴 DEFECT PRIORITY: "
-            f"{open_defects} open defect(s) "
-            f"require attention."
-        )
-
-    if hsse_findings > 0:
-
-        st.error(
-            f"🔴 HSSE PRIORITY: "
-            f"{hsse_findings} HSSE finding(s) "
-            f"require attention."
-        )
-
-    if pending_actions > 0:
-
-        st.warning(
-            f"🟠 ACTION PRIORITY: "
-            f"{pending_actions} pending action(s) "
-            f"require follow-up."
-        )
-
-    # =========================================================
+    # =====================================================
     # DATA GOVERNANCE
-    # =========================================================
+    # =====================================================
 
-    st.subheader(
-        "🔎 Intelligence Data Coverage"
-    )
-
-    data_available = sum(
-        [
-            voyage_records > 0,
-            certificate_records > 0,
-            pms_records > 0,
-            open_defects > 0,
-            hsse_findings > 0,
-            pending_actions > 0,
-        ]
-    )
-
-    st.write(
-        f"Operational data domains available: "
-        f"{data_available}/6"
-    )
-
-    st.info(
-        "Dashboard Intelligence hanya menggunakan "
-        "data operasional yang tersedia. "
-        "Jika suatu domain belum memiliki data, "
-        "sistem menandainya sebagai DATA GAP dan "
-        "tidak membuat asumsi."
+    st.caption(
+        "MARINE OPERATIONS INTELLIGENCE CENTRE • "
+        "Fleet • HSSE • PMS • Voyage • Risk • AI Copilot"
     )
 
 # ============================================================

@@ -2649,8 +2649,7 @@ elif menu == "Action Tracker":
     # Update Dashboard session state
 
     st.session_state["pending_actions"] = pending_actions
-    st.session_state["action_records"] = total_actions
-    st.session_state["overdue_actions"] = overdue_actions
+st.session_state["overdue_actions"] = overdue_actions
 
     # ========================================================
     # KPI DISPLAY

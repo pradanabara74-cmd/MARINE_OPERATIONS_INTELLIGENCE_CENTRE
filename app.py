@@ -847,7 +847,11 @@ elif menu == "Voyage Operations":
         attention_count = int(
             attention_mask.sum()
         )
+        st.session_state["voyage_records"] = len(voyage_df)
 
+        st.session_state["delayed_exception"] = delayed_count
+
+        st.session_state["attention_required"] = attention_count
         st.markdown(
             "### 📊 Voyage Intelligence"
         )

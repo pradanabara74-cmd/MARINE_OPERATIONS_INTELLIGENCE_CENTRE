@@ -686,32 +686,25 @@ PRIORITY ACTIONS
                 error_text = str(e)
 
                 if (
-                    "429" in error_text
-                    or "RESOURCE_EXHAUSTED" in error_text
-                ):
+            "429" in error_text
+            or "RESOURCE_EXHAUSTED" in error_text
+        ):
+            st.warning(
+                ...
+            )
 
-                    st.warning(
-                        "Data Voyage berhasil dimuat, tetapi "
-                        "Gemini sedang mencapai batas quota. "
-                        "Silakan klik ANALYZE VOYAGE lagi "
-                        "setelah quota tersedia."
-                    )
                 elif (
-                    "503" in error_text
-                    or "UNAVAILABLE" in error_text
-                ):
-
-                    st.warning(
-                        "Data Voyage berhasil dimuat, tetapi "
-                        "Gemini sedang mengalami high demand. "
-                        "Silakan klik ANALYZE VOYAGE lagi."
-                    )
+            "503" in error_text
+            or "UNAVAILABLE" in error_text
+        ):
+            st.warning(
+                ...
+            )
 
                 else:
-
-                    st.error(
-                        f"Gagal melakukan analisis Voyage: {e}"
-                    )
+            st.error(
+                ...
+            )
 
 # ============================================================
 # HSSE / DPA

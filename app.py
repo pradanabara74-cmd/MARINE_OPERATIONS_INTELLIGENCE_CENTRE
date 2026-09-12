@@ -929,6 +929,8 @@ elif menu == "Voyage Operations":
         try:
             voyage_df = pd.read_csv(uploaded_voyage)
 
+            st.session_state["voyage_data"] = voyage_df.copy()
+
         except Exception as e:
             st.error(
                 f"Gagal membaca file Voyage/CSV: {e}"

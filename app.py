@@ -2648,46 +2648,47 @@ elif menu == "Action Tracker":
 
     # Update Dashboard session state
 
-    st.session_state["pending_actions"] = pending_actions
+st.session_state["pending_actions"] = pending_actions
 st.session_state["overdue_actions"] = overdue_actions
 
-    # ========================================================
-    # KPI DISPLAY
-    # ========================================================
 
-    st.subheader("Action Tracker KPI")
+# ========================================================
+# KPI DISPLAY
+# ========================================================
 
-    k1, k2, k3, k4, k5 = st.columns(5)
+st.subheader("Action Tracker KPI")
 
-    with k1:
-        st.metric(
-            "Total Actions",
-            total_actions,
-        )
+k1, k2, k3, k4, k5 = st.columns(5)
 
-    with k2:
-        st.metric(
-            "Open",
-            open_actions,
-        )
+with k1:
+    st.metric(
+        "Total Actions",
+        total_actions,
+    )
 
-    with k3:
-        st.metric(
-            "In Progress",
-            in_progress_actions,
-        )
+with k2:
+    st.metric(
+        "Open",
+        open_actions,
+    )
 
-    with k4:
-        st.metric(
-            "Overdue",
-            overdue_actions,
-        )
+with k3:
+    st.metric(
+        "In Progress",
+        in_progress_actions,
+    )
 
-    with k5:
-        st.metric(
-            "Completed",
-            completed_actions,
-        )
+with k4:
+    st.metric(
+        "Overdue",
+        overdue_actions,
+    )
+
+with k5:
+    st.metric(
+        "Completed",
+        completed_actions,
+    )
 
     st.divider()
 

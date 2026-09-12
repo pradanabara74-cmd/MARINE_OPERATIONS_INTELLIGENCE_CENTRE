@@ -686,25 +686,25 @@ PRIORITY ACTIONS
                 error_text = str(e)
 
                 if (
-            "429" in error_text
-            or "RESOURCE_EXHAUSTED" in error_text
-        ):
-            st.warning(
-                ...
-            )
+                "429" in error_text
+                or "RESOURCE_EXHAUSTED" in error_text
+            ):
+                    st.warning(
+                        ...
+                    )
 
                 elif (
-            "503" in error_text
-            or "UNAVAILABLE" in error_text
-        ):
-            st.warning(
-                ...
-            )
+                "503" in error_text
+                or "UNAVAILABLE" in error_text
+            ):
+                    st.warning(
+                    ...
+                )
 
                 else:
-            st.error(
-                ...
-            )
+                    st.error(
+                    ...
+                )
 
 # ============================================================
 # HSSE / DPA

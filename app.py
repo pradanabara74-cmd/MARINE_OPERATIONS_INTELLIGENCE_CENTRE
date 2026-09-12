@@ -2410,42 +2410,46 @@ PRIORITY ACTIONS
 # ACTION TRACKER
 # ============================================================
 
+# ============================================================
+# ACTION TRACKER
+# ============================================================
+
 elif menu == "Action Tracker":
 
     st.header("✅ Action Tracker")
 
-    st.caption(
-        "Operational action management untuk memastikan setiap finding, "
-        "defect, HSSE issue, audit finding dan operational exception "
-        "memiliki responsible person, due date dan status yang jelas."
-    )
-
-    # ========================================================
-    # SESSION STATE
-    # ========================================================
+    # --------------------------------------------------------
+    # INITIALIZE ACTION STORAGE
+    # --------------------------------------------------------
 
     if "action_records" not in st.session_state:
-        st.session_state.action_records = []
+        st.session_state["action_records"] = []
 
-    # ========================================================
-    # STATUS / PRIORITY
-    # ========================================================
+    if "pending_actions" not in st.session_state:
+        st.session_state["pending_actions"] = 0
 
-    ACTION_STATUS = [
+    if "overdue_actions" not in st.session_state:
+        st.session_state["overdue_actions"] = 0
+
+    # --------------------------------------------------------
+    # MASTER DATA
+    # --------------------------------------------------------
+
+    action_statuses = [
         "Open",
         "In Progress",
         "Completed",
         "Cancelled",
     ]
 
-    ACTION_PRIORITY = [
+    action_priorities = [
         "Critical",
         "High",
         "Medium",
         "Low",
     ]
 
-    ACTION_SOURCE = [
+    action_sources = [
         "HSSE",
         "Audit",
         "Defect",
@@ -2458,161 +2462,210 @@ elif menu == "Action Tracker":
         "Other",
     ]
 
-    # ========================================================
-    # HELPER
-    # ========================================================
+    # --------------------------------------------------------
+    # HELPER - OVERDUE
+    # --------------------------------------------------------
 
     def action_is_overdue(action):
+
+        if action.get("Status") in [
+            "Completed",
+            "Cancelled",
+        ]:
+            return False
+
         due_date = action.get("Due Date")
 
         if not due_date:
             return False
 
-        if action.get("Status") == "Completed":
-            return False
-
-        if action.get("Status") == "Cancelled":
-            return False
-
         try:
-            if hasattr(due_date, "date"):
+
+            if isinstance(due_date, str):
+                due_date = datetime.strptime(
+                    due_date,
+                    "%Y-%m-%d"
+                ).date()
+
+            elif isinstance(due_date, datetime):
                 due_date = due_date.date()
 
             return due_date < datetime.now().date()
 
         except Exception:
+
             return False
 
-    # ========================================================
-    # ADD NEW ACTION
-    # ========================================================
+    # --------------------------------------------------------
+    # GET CURRENT ACTIONS
+    # --------------------------------------------------------
+
+    actions = st.session_state.get(
+        "action_records",
+        []
+    )
+
+    # --------------------------------------------------------
+    # CREATE NEW ACTION
+    # --------------------------------------------------------
 
     st.subheader("➕ Create New Action")
 
-    with st.form("create_action_form", clear_on_submit=True):
+    with st.form(
+        "create_action_form",
+        clear_on_submit=True
+    ):
 
-        c1, c2, c3 = st.columns(3)
+        col1, col2, col3 = st.columns(3)
 
-        with c1:
-            action_vessel = st.selectbox(
+        with col1:
+
+            vessel = st.selectbox(
                 "Vessel",
-                ["Fleet"] + FLEET,
-                key="action_vessel",
+                ["All Fleet"] + list(FLEET),
+                key="create_action_vessel",
             )
 
-            action_source = st.selectbox(
+            source = st.selectbox(
                 "Source",
-                ACTION_SOURCE,
-                key="action_source",
+                action_sources,
+                key="create_action_source",
             )
 
-        with c2:
-            action_priority = st.selectbox(
+        with col2:
+
+            priority = st.selectbox(
                 "Priority",
-                ACTION_PRIORITY,
-                key="action_priority",
+                action_priorities,
+                key="create_action_priority",
             )
 
-            action_responsible = st.text_input(
+            responsible = st.text_input(
                 "Responsible / PIC",
-                placeholder="Nama / jabatan PIC",
-                key="action_responsible",
+                key="create_action_responsible",
             )
 
-        with c3:
-            action_due_date = st.date_input(
+        with col3:
+
+            due_date = st.date_input(
                 "Due Date",
                 value=datetime.now().date(),
-                key="action_due_date",
+                key="create_action_due_date",
             )
 
-            action_status = st.selectbox(
+            status = st.selectbox(
                 "Status",
-                ACTION_STATUS,
-                index=0,
-                key="action_status",
+                action_statuses,
+                key="create_action_status",
             )
 
-        action_description = st.text_area(
+        description = st.text_area(
             "Action Description",
             placeholder=(
-                "Jelaskan tindakan yang harus dilakukan..."
+                "Masukkan tindakan yang harus dilakukan..."
             ),
-            height=100,
-            key="action_description",
+            key="create_action_description",
         )
 
-        action_remarks = st.text_area(
+        remarks = st.text_area(
             "Remarks",
-            placeholder="Catatan tambahan...",
-            height=80,
-            key="action_remarks",
+            placeholder=(
+                "Catatan tambahan / follow-up..."
+            ),
+            key="create_action_remarks",
         )
 
         create_action = st.form_submit_button(
             "CREATE ACTION",
-            type="primary",
             use_container_width=True,
         )
 
-        if create_action:
+    # --------------------------------------------------------
+    # SAVE NEW ACTION
+    # --------------------------------------------------------
 
-            if not action_description.strip():
-                st.warning(
-                    "Action Description wajib diisi."
+    if create_action:
+
+        if not description.strip():
+
+            st.warning(
+                "Action Description wajib diisi."
+            )
+
+        elif not responsible.strip():
+
+            st.warning(
+                "Responsible / PIC wajib diisi."
+            )
+
+        else:
+
+            next_id = (
+                len(
+                    st.session_state[
+                        "action_records"
+                    ]
                 )
+                + 1
+            )
 
-            elif not action_responsible.strip():
-                st.warning(
-                    "Responsible / PIC wajib diisi."
-                )
+            new_action = {
 
-            else:
+                "Action ID":
+                    f"ACT-{next_id:04d}",
 
-                next_number = (
-                    len(st.session_state.action_records) + 1
-                )
+                "Vessel":
+                    vessel,
 
-                action_id = (
-                    f"ACT-{next_number:04d}"
-                )
+                "Source":
+                    source,
 
-                new_action = {
-                    "Action ID": action_id,
-                    "Vessel": action_vessel,
-                    "Source": action_source,
-                    "Description": action_description.strip(),
-                    "Priority": action_priority,
-                    "Responsible": action_responsible.strip(),
-                    "Due Date": action_due_date,
-                    "Status": action_status,
-                    "Remarks": action_remarks.strip(),
-                    "Created": datetime.now().strftime(
+                "Description":
+                    description.strip(),
+
+                "Priority":
+                    priority,
+
+                "Responsible":
+                    responsible.strip(),
+
+                "Due Date":
+                    due_date.strftime(
+                        "%Y-%m-%d"
+                    ),
+
+                "Status":
+                    status,
+
+                "Remarks":
+                    remarks.strip(),
+
+                "Created":
+                    datetime.now().strftime(
                         "%Y-%m-%d %H:%M"
                     ),
-                }
+            }
 
-                st.session_state.action_records.append(
-                    new_action
-                )
+            st.session_state[
+                "action_records"
+            ].append(
+                new_action
+            )
 
-                st.success(
-                    f"Action {action_id} berhasil dibuat."
-                )
+            st.success(
+                f"{new_action['Action ID']} berhasil dibuat."
+            )
 
-                st.rerun()
+            st.rerun()
 
-    st.divider()
+    # --------------------------------------------------------
+    # CALCULATE KPI
+    # --------------------------------------------------------
 
-    # ========================================================
-    # PREPARE DATA
-    # ========================================================
-
-    actions = st.session_state.action_records
-
-    # ========================================================
-    # KPI
-    # ========================================================
+    actions = st.session_state.get(
+        "action_records",
+        []
+    )
 
     total_actions = len(actions)
 
@@ -2640,90 +2693,130 @@ elif menu == "Action Tracker":
         if action_is_overdue(action)
     )
 
-    pending_actions = (
-        open_actions
-        + in_progress_actions
-        + overdue_actions
+    pending_actions = sum(
+        1
+        for action in actions
+        if action.get("Status")
+        in [
+            "Open",
+            "In Progress",
+        ]
     )
 
-    # Update Dashboard session state
+    # IMPORTANT:
+    # pending_actions hanya menghitung Open + In Progress.
+    # Overdue tidak ditambahkan lagi agar tidak double count.
 
-st.session_state["pending_actions"] = pending_actions
-st.session_state["overdue_actions"] = overdue_actions
+    st.session_state[
+        "pending_actions"
+    ] = pending_actions
 
+    st.session_state[
+        "overdue_actions"
+    ] = overdue_actions
 
-# ========================================================
-# KPI DISPLAY
-# ========================================================
-
-st.subheader("Action Tracker KPI")
-
-k1, k2, k3, k4, k5 = st.columns(5)
-
-with k1:
-    st.metric(
-        "Total Actions",
-        total_actions,
-    )
-
-with k2:
-    st.metric(
-        "Open",
-        open_actions,
-    )
-
-with k3:
-    st.metric(
-        "In Progress",
-        in_progress_actions,
-    )
-
-with k4:
-    st.metric(
-        "Overdue",
-        overdue_actions,
-    )
-
-with k5:
-    st.metric(
-        "Completed",
-        completed_actions,
-    )
+    # --------------------------------------------------------
+    # KPI
+    # --------------------------------------------------------
 
     st.divider()
 
-    # ========================================================
+    st.subheader("📊 Action Tracker KPI")
+
+    k1, k2, k3, k4, k5 = st.columns(5)
+
+    with k1:
+
+        st.metric(
+            "TOTAL",
+            total_actions,
+        )
+
+    with k2:
+
+        st.metric(
+            "OPEN",
+            open_actions,
+        )
+
+    with k3:
+
+        st.metric(
+            "IN PROGRESS",
+            in_progress_actions,
+        )
+
+    with k4:
+
+        st.metric(
+            "OVERDUE",
+            overdue_actions,
+        )
+
+    with k5:
+
+        st.metric(
+            "COMPLETED",
+            completed_actions,
+        )
+
+    # --------------------------------------------------------
     # FILTER
-    # ========================================================
+    # --------------------------------------------------------
+
+    st.divider()
 
     st.subheader("🔎 Action Monitoring")
 
     f1, f2, f3 = st.columns(3)
 
     with f1:
+
         filter_status = st.selectbox(
             "Filter Status",
-            ["All"] + ACTION_STATUS,
+            [
+                "All",
+                *action_statuses,
+            ],
             key="action_filter_status",
         )
 
     with f2:
+
         filter_priority = st.selectbox(
             "Filter Priority",
-            ["All"] + ACTION_PRIORITY,
+            [
+                "All",
+                *action_priorities,
+            ],
             key="action_filter_priority",
         )
 
     with f3:
+
+        vessel_options = sorted(
+            list(
+                {
+                    str(
+                        action.get(
+                            "Vessel",
+                            ""
+                        )
+                    )
+                    for action in actions
+                }
+            )
+        )
+
         filter_vessel = st.selectbox(
             "Filter Vessel",
-            ["All", "Fleet"] + FLEET,
+            ["All"] + vessel_options,
             key="action_filter_vessel",
         )
 
-    # ========================================================
-    # FILTER DATA
-    # ========================================================
+    # --------------------------------------------------------
+    # APPLY FILTER
+    # --------------------------------------------------------
 
     filtered_actions = []
 
@@ -2731,72 +2824,104 @@ with k5:
 
         if (
             filter_status != "All"
-            and action.get("Status") != filter_status
+            and action.get("Status")
+            != filter_status
         ):
             continue
 
         if (
             filter_priority != "All"
-            and action.get("Priority") != filter_priority
+            and action.get("Priority")
+            != filter_priority
         ):
             continue
 
         if (
             filter_vessel != "All"
-            and action.get("Vessel") != filter_vessel
+            and action.get("Vessel")
+            != filter_vessel
         ):
             continue
 
-        filtered_actions.append(action.copy())
+        filtered_actions.append(action)
 
-    # ========================================================
-    # ADD OVERDUE FLAG
-    # ========================================================
-
-    for action in filtered_actions:
-
-        if action_is_overdue(action):
-            action["Monitoring"] = "OVERDUE"
-        elif action.get("Status") == "Completed":
-            action["Monitoring"] = "COMPLETED"
-        elif action.get("Status") == "In Progress":
-            action["Monitoring"] = "IN PROGRESS"
-        else:
-            action["Monitoring"] = "OPEN"
-
-    # ========================================================
+    # --------------------------------------------------------
     # ACTION TABLE
-    # ========================================================
+    # --------------------------------------------------------
 
     if filtered_actions:
 
-        action_display_df = pd.DataFrame(
-            filtered_actions
+        display_rows = []
+
+        for action in filtered_actions:
+
+            display_rows.append(
+                {
+                    "Action ID":
+                        action.get(
+                            "Action ID",
+                            ""
+                        ),
+
+                    "Vessel":
+                        action.get(
+                            "Vessel",
+                            ""
+                        ),
+
+                    "Source":
+                        action.get(
+                            "Source",
+                            ""
+                        ),
+
+                    "Description":
+                        action.get(
+                            "Description",
+                            ""
+                        ),
+
+                    "Priority":
+                        action.get(
+                            "Priority",
+                            ""
+                        ),
+
+                    "Responsible":
+                        action.get(
+                            "Responsible",
+                            ""
+                        ),
+
+                    "Due Date":
+                        action.get(
+                            "Due Date",
+                            ""
+                        ),
+
+                    "Status":
+                        action.get(
+                            "Status",
+                            ""
+                        ),
+
+                    "Overdue":
+                        (
+                            "YES"
+                            if action_is_overdue(
+                                action
+                            )
+                            else "NO"
+                        ),
+                }
+            )
+
+        monitoring_df = pd.DataFrame(
+            display_rows
         )
 
-        columns_to_show = [
-            "Action ID",
-            "Vessel",
-            "Source",
-            "Description",
-            "Priority",
-            "Responsible",
-            "Due Date",
-            "Status",
-            "Monitoring",
-            "Remarks",
-        ]
-
-        action_display_df = action_display_df[
-            [
-                column
-                for column in columns_to_show
-                if column in action_display_df.columns
-            ]
-        ]
-
         st.dataframe(
-            action_display_df,
+            monitoring_df,
             use_container_width=True,
             hide_index=True,
         )
@@ -2804,26 +2929,32 @@ with k5:
     else:
 
         st.info(
-            "Belum ada Action Tracker yang sesuai dengan filter."
+            "DATA BELUM TERSEDIA — "
+            "belum ada action yang sesuai filter."
         )
 
-    # ========================================================
-    # UPDATE ACTION
-    # ========================================================
+    # --------------------------------------------------------
+    # UPDATE / DELETE ACTION
+    # --------------------------------------------------------
 
     if actions:
 
         st.divider()
 
-        st.subheader("✏️ Update Action")
+        st.subheader(
+            "✏️ Update / Delete Action"
+        )
 
         action_ids = [
-            action["Action ID"]
+            action.get(
+                "Action ID",
+                ""
+            )
             for action in actions
         ]
 
         selected_action_id = st.selectbox(
-            "Pilih Action",
+            "Select Action",
             action_ids,
             key="selected_action_id",
         )
@@ -2832,7 +2963,9 @@ with k5:
             (
                 action
                 for action in actions
-                if action["Action ID"]
+                if action.get(
+                    "Action ID"
+                )
                 == selected_action_id
             ),
             None,
@@ -2846,12 +2979,20 @@ with k5:
 
                 update_status = st.selectbox(
                     "Update Status",
-                    ACTION_STATUS,
-                    index=ACTION_STATUS.index(
-                        selected_action.get(
-                            "Status",
-                            "Open",
+                    action_statuses,
+                    index=(
+                        action_statuses.index(
+                            selected_action.get(
+                                "Status",
+                                "Open"
+                            )
                         )
+                        if selected_action.get(
+                            "Status",
+                            "Open"
+                        )
+                        in action_statuses
+                        else 0
                     ),
                     key="update_action_status",
                 )
@@ -2860,115 +3001,182 @@ with k5:
 
                 update_priority = st.selectbox(
                     "Update Priority",
-                    ACTION_PRIORITY,
-                    index=ACTION_PRIORITY.index(
-                        selected_action.get(
-                            "Priority",
-                            "Medium",
+                    action_priorities,
+                    index=(
+                        action_priorities.index(
+                            selected_action.get(
+                                "Priority",
+                                "Medium"
+                            )
                         )
+                        if selected_action.get(
+                            "Priority",
+                            "Medium"
+                        )
+                        in action_priorities
+                        else 2
                     ),
                     key="update_action_priority",
                 )
 
             with u3:
 
-                update_responsible = st.text_input(
-                    "Update Responsible / PIC",
-                    value=selected_action.get(
-                        "Responsible",
-                        "",
+                update_due_date = st.date_input(
+                    "Update Due Date",
+                    value=(
+                        datetime.strptime(
+                            selected_action.get(
+                                "Due Date"
+                            ),
+                            "%Y-%m-%d"
+                        ).date()
+                        if selected_action.get(
+                            "Due Date"
+                        )
+                        else datetime.now().date()
                     ),
-                    key="update_action_responsible",
+                    key="update_action_due_date",
                 )
 
-            update_due_date = st.date_input(
-                "Update Due Date",
+            update_responsible = st.text_input(
+                "Update Responsible / PIC",
                 value=selected_action.get(
-                    "Due Date",
-                    datetime.now().date(),
+                    "Responsible",
+                    ""
                 ),
-                key="update_action_due_date",
+                key="update_action_responsible",
+            )
+
+            update_description = st.text_area(
+                "Update Description",
+                value=selected_action.get(
+                    "Description",
+                    ""
+                ),
+                key="update_action_description",
             )
 
             update_remarks = st.text_area(
                 "Update Remarks",
                 value=selected_action.get(
                     "Remarks",
-                    "",
+                    ""
                 ),
                 key="update_action_remarks",
             )
 
-            c_update, c_delete = st.columns(2)
+            b1, b2 = st.columns(2)
 
-            with c_update:
+            with b1:
 
-                if st.button(
-                    "SAVE UPDATE",
-                    type="primary",
+                update_action = st.button(
+                    "UPDATE ACTION",
                     use_container_width=True,
-                    key="save_action_update",
-                ):
+                    key="update_action_button",
+                )
 
-                    selected_action["Status"] = (
-                        update_status
-                    )
+            with b2:
 
-                    selected_action["Priority"] = (
-                        update_priority
-                    )
-
-                    selected_action["Responsible"] = (
-                        update_responsible.strip()
-                    )
-
-                    selected_action["Due Date"] = (
-                        update_due_date
-                    )
-
-                    selected_action["Remarks"] = (
-                        update_remarks.strip()
-                    )
-
-                    st.success(
-                        f"{selected_action_id} berhasil diperbarui."
-                    )
-
-                    st.rerun()
-
-            with c_delete:
-
-                if st.button(
+                delete_action = st.button(
                     "DELETE ACTION",
                     use_container_width=True,
-                    key="delete_action",
+                    key="delete_action_button",
+                )
+
+            # ------------------------------------------------
+            # UPDATE
+            # ------------------------------------------------
+
+            if update_action:
+
+                for action in (
+                    st.session_state[
+                        "action_records"
+                    ]
                 ):
 
-                    st.session_state.action_records = [
-                        action
-                        for action
-                        in st.session_state.action_records
-                        if action["Action ID"]
-                        != selected_action_id
+                    if (
+                        action.get(
+                            "Action ID"
+                        )
+                        == selected_action_id
+                    ):
+
+                        action[
+                            "Status"
+                        ] = update_status
+
+                        action[
+                            "Priority"
+                        ] = update_priority
+
+                        action[
+                            "Due Date"
+                        ] = update_due_date.strftime(
+                            "%Y-%m-%d"
+                        )
+
+                        action[
+                            "Responsible"
+                        ] = update_responsible.strip()
+
+                        action[
+                            "Description"
+                        ] = update_description.strip()
+
+                        action[
+                            "Remarks"
+                        ] = update_remarks.strip()
+
+                        break
+
+                st.success(
+                    f"{selected_action_id} berhasil diperbarui."
+                )
+
+                st.rerun()
+
+            # ------------------------------------------------
+            # DELETE
+            # ------------------------------------------------
+
+            if delete_action:
+
+                st.session_state[
+                    "action_records"
+                ] = [
+                    action
+                    for action
+                    in st.session_state[
+                        "action_records"
                     ]
-
-                    st.success(
-                        f"{selected_action_id} berhasil dihapus."
+                    if action.get(
+                        "Action ID"
                     )
+                    != selected_action_id
+                ]
 
-                    st.rerun()
+                st.success(
+                    f"{selected_action_id} berhasil dihapus."
+                )
 
-    # ========================================================
+                st.rerun()
+
+    # --------------------------------------------------------
     # EXPORT
-    # ========================================================
+    # --------------------------------------------------------
 
     if actions:
 
         st.divider()
 
-        st.subheader("📥 Export Action Tracker")
+        st.subheader(
+            "📥 Export Action Tracker"
+        )
 
-        export_df = pd.DataFrame(actions)
+        export_df = pd.DataFrame(
+            actions
+        )
 
         csv_data = export_df.to_csv(
             index=False
@@ -2977,16 +3185,21 @@ with k5:
         st.download_button(
             label="DOWNLOAD ACTION TRACKER CSV",
             data=csv_data,
-            file_name=(
-                "marine_action_tracker.csv"
-            ),
+            file_name="marine_action_tracker.csv",
             mime="text/csv",
             use_container_width=True,
+            key="download_action_tracker_csv",
         )
 
-    # ========================================================
+    # --------------------------------------------------------
     # OPERATIONAL PRIORITY
-    # ========================================================
+    # --------------------------------------------------------
+
+    st.divider()
+
+    st.subheader(
+        "🚨 Operational Priority"
+    )
 
     if overdue_actions > 0:
 
@@ -2998,14 +3211,15 @@ with k5:
     elif open_actions > 0:
 
         st.warning(
-            f"⚠️ {open_actions} action masih berstatus Open."
+            f"⚠️ {open_actions} action "
+            "masih berstatus Open."
         )
 
     elif in_progress_actions > 0:
 
         st.info(
-            f"🔄 {in_progress_actions} action sedang "
-            "dalam proses penyelesaian."
+            f"🔄 {in_progress_actions} action "
+            "sedang dalam proses penyelesaian."
         )
 
     elif total_actions > 0:
@@ -3017,7 +3231,8 @@ with k5:
     else:
 
         st.info(
-            "DATA BELUM TERSEDIA — belum ada operational action."
+            "DATA BELUM TERSEDIA — "
+            "belum ada operational action."
         )
 
 # ============================================================

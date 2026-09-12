@@ -501,6 +501,11 @@ elif menu == "Voyage Operations":
 
     st.header("⚓ Voyage Operations Intelligence")
 
+    st.caption(
+        "Voyage monitoring, delay detection, exception identification "
+        "and operational priority assessment."
+    )
+
     uploaded_voyage = st.file_uploader(
         "Upload Voyage Data (CSV)",
         type=["csv"],
@@ -533,77 +538,89 @@ elif menu == "Voyage Operations":
             voyage_df = pd.read_csv(uploaded_voyage)
 
         except Exception as e:
-
             st.error(
                 f"Gagal membaca file Voyage/CSV: {e}"
             )
 
             voyage_df = pd.DataFrame()
-            
-            voyage_df.columns = [
-    str(c).strip().lower()
-    for c in voyage_df.columns
-]
 
     if not voyage_df.empty:
 
-        st.markdown("### 📋 Voyage Records")
+        required_columns = [
+            "vessel",
+            "voyage",
+            "origin",
+            "destination",
+            "ETD",
+            "ETA",
+            "status",
+            "remarks",
+        ]
 
-        st.dataframe(
-            voyage_df,
-            use_container_width=True,
-            hide_index=True,
+        for column in required_columns:
+            if column not in voyage_df.columns:
+                voyage_df[column] = ""
+
+        voyage_df = voyage_df[
+            required_columns
+        ]
+
+        voyage_df["status"] = (
+            voyage_df["status"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
         )
 
-        delayed_count = 0
-        attention_count = 0
+        voyage_df["remarks"] = (
+            voyage_df["remarks"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
 
-        # Normalisasi status dan remarks agar deteksi konsisten
-        status_text = pd.Series("", index=voyage_df.index)
-        remarks_text = pd.Series("", index=voyage_df.index)
+        status_text = (
+            voyage_df["status"]
+            .str.lower()
+        )
 
-        if "status" in voyage_df.columns:
-            status_text = (
-                voyage_df["status"]
-                .fillna("")
-                .astype(str)
-                .str.strip()
-                .str.lower()
+        remarks_text = (
+            voyage_df["remarks"]
+            .str.lower()
+        )
+
+        delayed_mask = status_text.str.contains(
+            r"delay|delayed|late|exception|hold",
+            regex=True,
+            na=False,
+        )
+
+        attention_mask = (
+            delayed_mask
+            |
+            remarks_text.str.contains(
+                r"delay|delayed|risk|hold|cancel|weather|abnormal|exception",
+                regex=True,
+                na=False,
             )
+        )
 
-        if "remarks" in voyage_df.columns:
-            remarks_text = (
-                voyage_df["remarks"]
-                .fillna("")
-                .astype(str)
-                .str.strip()
-                .str.lower()
-            )
+        delayed_count = int(
+            delayed_mask.sum()
+        )
 
-        # Deteksi voyage delay / exception
-delayed_mask = status_text.isin(
-    ["delayed", "cancelled", "cancel", "hold"]
-) | status_text.str.contains(
-    r"delay|delayed|cancelled|cancel|hold",
-    regex=True,
-    na=False,
-)
+        attention_count = int(
+            attention_mask.sum()
+        )
 
-# Deteksi attention berdasarkan status ATAU remarks
-attention_mask = delayed_mask | remarks_text.str.contains(
-    r"delay|delayed|risk|hold|cancel|weather|abnormal",
-    regex=True,
-    na=False,
-)
+        st.markdown(
+            "### 📊 Voyage Intelligence"
+        )
 
-delayed_count = int(delayed_mask.sum())
-attention_count = int(attention_mask.sum())
+        col1, col2, col3 = st.columns(3)
 
-st.markdown("### 📊 Voyage Intelligence")
-
-col1, col2, col3 = st.columns(3)
-with col1:
-        st.metric(
+        with col1:
+            st.metric(
                 "Voyage Records",
                 len(voyage_df),
             )
@@ -620,6 +637,20 @@ with col1:
                 attention_count,
             )
 
+        st.markdown(
+            "### 📋 Voyage Records"
+        )
+
+        st.dataframe(
+            voyage_df,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.markdown(
+            "### 🧠 Voyage Operations Analysis"
+        )
+
         if st.button(
             "ANALYZE VOYAGE",
             type="primary",
@@ -632,33 +663,59 @@ with col1:
 
             voyage_prompt = f"""
 USER REQUEST:
-Analyze supplied Voyage Operations data for marine fleet operations.
+Analyze supplied Voyage Operations data
+for marine fleet operations.
 
 VOYAGE DATA:
 {voyage_context}
 
 VOYAGE INTELLIGENCE RULES:
 
-- Analyze ONLY the supplied voyage data.
-- NEVER invent vessel status, voyage number, origin,
-  destination, ETD, ETA, delay, weather condition,
-  port condition, vessel condition or voyage progress.
-- Identify delay or operational exception only when
-  explicitly supported by the supplied data.
-- If required information is missing, state:
-  DATA BELUM TERSEDIA.
-- Do not assume ETA, ETD or voyage progress.
-- Clearly separate:
+1. Analyze ONLY the supplied voyage data.
+
+2. NEVER invent:
+- vessel status
+- voyage number
+- origin
+- destination
+- ETD
+- ETA
+- delay
+- weather condition
+- port condition
+- vessel condition
+- voyage progress
+
+3. Identify delay or operational exception
+only when explicitly supported by the supplied data.
+
+4. If required information is missing, state:
+DATA BELUM TERSEDIA.
+
+5. Do not assume ETA, ETD or voyage progress.
+
+6. Clearly separate the assessment into:
 
 FACTS
+
 DATA GAPS
+
 VOYAGE RISK
+
 OPERATIONAL EXCEPTIONS
+
 PRIORITY ACTIONS
 
-- Prioritize safety, operational continuity,
-  voyage execution and compliance.
-- Do not make assumptions beyond supplied data.
+7. Prioritize:
+- safety
+- operational continuity
+- voyage execution
+- compliance
+
+8. Do not make assumptions beyond supplied data.
+
+9. For every identified exception, use only
+evidence available in the supplied dataset.
 """
 
             try:
@@ -679,32 +736,43 @@ PRIORITY ACTIONS
                     "### 🧠 Voyage Intelligence Assessment"
                 )
 
-                st.markdown(voyage_answer)
+                st.markdown(
+                    voyage_answer
+                )
 
             except Exception as e:
 
                 error_text = str(e)
 
                 if (
-                "429" in error_text
-                or "RESOURCE_EXHAUSTED" in error_text
-            ):
+                    "429" in error_text
+                    or "RESOURCE_EXHAUSTED" in error_text
+                ):
+
                     st.warning(
-                        ...
+                        "Data Voyage berhasil dimuat, "
+                        "tetapi Gemini sedang mencapai "
+                        "batas quota. Silakan coba "
+                        "ANALYZE VOYAGE lagi setelah quota tersedia."
                     )
 
                 elif (
-                "503" in error_text
-                or "UNAVAILABLE" in error_text
-            ):
+                    "503" in error_text
+                    or "UNAVAILABLE" in error_text
+                ):
+
                     st.warning(
-                    ...
-                )
+                        "Data Voyage berhasil dimuat, "
+                        "tetapi Gemini sedang mengalami "
+                        "high demand. Silakan coba "
+                        "ANALYZE VOYAGE lagi."
+                    )
 
                 else:
+
                     st.error(
-                    ...
-                )
+                        f"Gagal melakukan analisis Voyage: {e}"
+                    )
 
 # ============================================================
 # HSSE / DPA

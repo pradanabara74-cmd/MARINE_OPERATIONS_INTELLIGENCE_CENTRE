@@ -3,13 +3,23 @@ import pandas as pd
 import json
 import time
 from datetime import datetime
+import uuid
+from urllib.request import Request, urlopen
+from urllib.parse import urlencode
+from urllib.error import HTTPError, URLError
 from google import genai
 from google.genai import types
 
 
+# ============================================================
+# GEMINI AI
+# ============================================================
+
 def get_gemini_client():
     try:
-        api_key = str(st.secrets.get("GEMINI_API_KEY", "")).strip()
+        api_key = str(
+            st.secrets.get("GEMINI_API_KEY", "")
+        ).strip()
     except Exception:
         api_key = ""
 
@@ -52,7 +62,7 @@ Rules:
 1. Be concise, professional and operational.
 2. Give evidence-based recommendations.
 3. NEVER invent vessel status, voyage, defect, certificate, PMS, HSSE,
-   crew, bunker, cargo or other operational data.
+   crew, bunker, cargo, audit finding, action status or other operational data.
 4. If required data is unavailable, clearly state: DATA BELUM TERSEDIA.
 5. For safety-critical matters, recommend appropriate escalation.
 6. Prioritize safety, compliance and operational continuity.
@@ -78,7 +88,6 @@ Rules:
             last_error = e
             error_text = str(e)
 
-            # Gemini quota habis
             if "429" in error_text or "RESOURCE_EXHAUSTED" in error_text:
                 return (
                     "Gemini sedang mencapai batas quota penggunaan. "
@@ -86,7 +95,6 @@ Rules:
                     "dijalankan. Silakan coba lagi setelah quota tersedia."
                 )
 
-            # Gemini sedang high demand
             if "503" in error_text or "UNAVAILABLE" in error_text:
                 if attempt < 2:
                     time.sleep(3 * (attempt + 1))
@@ -101,7 +109,651 @@ Rules:
 
     if last_error is not None:
         raise last_error
+
+
 # ============================================================
+# PERSISTENT DATA LAYER - SUPABASE
+# ============================================================
+
+SUPABASE_URL = ""
+SUPABASE_KEY = ""
+
+try:
+    SUPABASE_URL = str(
+        st.secrets.get("SUPABASE_URL", "")
+    ).strip().rstrip("/")
+
+    SUPABASE_KEY = str(
+        st.secrets.get("SUPABASE_SECRET_KEY", "")
+    ).strip()
+
+    if not SUPABASE_KEY:
+        SUPABASE_KEY = str(
+            st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")
+        ).strip()
+
+except Exception:
+    SUPABASE_URL = ""
+    SUPABASE_KEY = ""
+
+
+def supabase_enabled():
+    return bool(SUPABASE_URL and SUPABASE_KEY)
+
+
+def supabase_request(method, table, params=None, payload=None):
+    """
+    REST client Supabase.
+    Tidak membutuhkan package supabase tambahan.
+    """
+
+    if not supabase_enabled():
+        return []
+
+    query = ""
+
+    if params:
+        query = "?" + urlencode(
+            params,
+            doseq=True,
+        )
+
+    url = f"{SUPABASE_URL}/rest/v1/{table}{query}"
+
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+    if method.upper() in [
+        "POST",
+        "PATCH",
+        "DELETE",
+    ]:
+        headers["Prefer"] = "return=representation"
+
+        if params and "on_conflict" in params:
+            headers["Prefer"] = (
+                "resolution=merge-duplicates,"
+                "return=representation"
+            )
+
+    body = None
+
+    if payload is not None:
+        body = json.dumps(
+            payload,
+            ensure_ascii=False,
+            default=str,
+        ).encode("utf-8")
+
+    request = Request(
+        url,
+        data=body,
+        headers=headers,
+        method=method.upper(),
+    )
+
+    try:
+        with urlopen(
+            request,
+            timeout=20,
+        ) as response:
+
+            raw = response.read().decode("utf-8")
+
+            if not raw:
+                return []
+
+            return json.loads(raw)
+
+    except HTTPError as exc:
+        detail = exc.read().decode(
+            "utf-8",
+            errors="replace",
+        )
+
+        raise RuntimeError(
+            f"Supabase HTTP {exc.code}: {detail}"
+        ) from exc
+
+    except URLError as exc:
+        raise RuntimeError(
+            f"Supabase connection error: {exc.reason}"
+        ) from exc
+
+
+# ============================================================
+# ACTION TRACKER DATABASE
+# ============================================================
+
+def normalize_action_record(row):
+    return {
+        "Action ID": row.get("action_id", ""),
+        "Vessel": row.get("vessel", "All Fleet"),
+        "Source": row.get("source", "Other"),
+        "Description": row.get("description", ""),
+        "Priority": row.get("priority", "Medium"),
+        "Responsible": row.get("responsible", ""),
+        "Due Date": row.get("due_date", ""),
+        "Status": row.get("status", "Open"),
+        "Remarks": row.get("remarks", ""),
+        "Created": row.get("created_at", ""),
+        "Updated": row.get("updated_at", ""),
+        "Completed": row.get("completed_at", ""),
+        "Created By": row.get("created_by", ""),
+        "Role": row.get("role", ""),
+    }
+
+
+def load_actions_from_db():
+    if not supabase_enabled():
+        return []
+
+    rows = supabase_request(
+        "GET",
+        "actions",
+        params={
+            "select": "*",
+            "order": "created_at.desc",
+        },
+    )
+
+    return [
+        normalize_action_record(row)
+        for row in rows
+    ]
+
+
+def action_to_db_row(action):
+    completed_at = action.get(
+        "Completed",
+        None,
+    )
+
+    if str(
+        action.get("Status", "")
+    ).lower() == "completed":
+
+        if not completed_at:
+            completed_at = datetime.now().isoformat()
+
+    else:
+        completed_at = None
+
+    return {
+        "action_id": action.get(
+            "Action ID",
+            "",
+        ),
+        "vessel": action.get(
+            "Vessel",
+            "All Fleet",
+        ),
+        "source": action.get(
+            "Source",
+            "Other",
+        ),
+        "description": action.get(
+            "Description",
+            "",
+        ),
+        "priority": action.get(
+            "Priority",
+            "Medium",
+        ),
+        "responsible": action.get(
+            "Responsible",
+            "",
+        ),
+        "due_date": str(
+            action.get(
+                "Due Date",
+                "",
+            )
+        ) or None,
+        "status": action.get(
+            "Status",
+            "Open",
+        ),
+        "remarks": action.get(
+            "Remarks",
+            "",
+        ),
+        "created_by": action.get(
+            "Created By",
+            "",
+        ),
+        "role": action.get(
+            "Role",
+            "",
+        ),
+        "completed_at": completed_at,
+    }
+
+
+def create_action_persistent(action):
+
+    if supabase_enabled():
+
+        payload = action_to_db_row(
+            action
+        )
+
+        payload["created_at"] = (
+            action.get("Created")
+            or datetime.now().isoformat()
+        )
+
+        payload["updated_at"] = (
+            datetime.now().isoformat()
+        )
+
+        return supabase_request(
+            "POST",
+            "actions",
+            payload=payload,
+        )
+
+    if "action_records" not in st.session_state:
+        st.session_state["action_records"] = []
+
+    st.session_state[
+        "action_records"
+    ].append(action)
+
+    return [action]
+
+
+def update_action_persistent(
+    action_id,
+    action,
+):
+
+    if supabase_enabled():
+
+        payload = action_to_db_row(
+            action
+        )
+
+        payload["updated_at"] = (
+            datetime.now().isoformat()
+        )
+
+        return supabase_request(
+            "PATCH",
+            "actions",
+            params={
+                "action_id": f"eq.{action_id}"
+            },
+            payload=payload,
+        )
+
+    records = st.session_state.get(
+        "action_records",
+        [],
+    )
+
+    for index, record in enumerate(records):
+        if record.get(
+            "Action ID"
+        ) == action_id:
+            records[index] = action
+            break
+
+    st.session_state[
+        "action_records"
+    ] = records
+
+    return [action]
+
+
+def delete_action_persistent(
+    action_id,
+):
+
+    if supabase_enabled():
+
+        return supabase_request(
+            "DELETE",
+            "actions",
+            params={
+                "action_id": f"eq.{action_id}"
+            },
+        )
+
+    records = st.session_state.get(
+        "action_records",
+        [],
+    )
+
+    records = [
+        record
+        for record in records
+        if record.get(
+            "Action ID"
+        ) != action_id
+    ]
+
+    st.session_state[
+        "action_records"
+    ] = records
+
+    return []
+
+
+def load_actions():
+
+    if supabase_enabled():
+        try:
+            return load_actions_from_db()
+
+        except Exception as e:
+            st.error(
+                f"Database Action Tracker error: {e}"
+            )
+            return []
+
+    return st.session_state.get(
+        "action_records",
+        [],
+    )
+
+
+def next_action_id(actions):
+
+    numbers = []
+
+    for action in actions:
+
+        value = str(
+            action.get(
+                "Action ID",
+                "",
+            )
+        )
+
+        if value.startswith("ACT-"):
+            try:
+                numbers.append(
+                    int(
+                        value.replace(
+                            "ACT-",
+                            "",
+                        )
+                    )
+                )
+            except Exception:
+                pass
+
+    next_number = (
+        max(numbers) + 1
+        if numbers
+        else 1
+    )
+
+    return f"ACT-{next_number:04d}"
+
+
+def action_is_overdue_global(action):
+
+    if str(
+        action.get(
+            "Status",
+            "",
+        )
+    ).lower() == "completed":
+        return False
+
+    due_date = action.get(
+        "Due Date",
+        "",
+    )
+
+    if not due_date:
+        return False
+
+    try:
+        due = pd.to_datetime(
+            due_date
+        ).date()
+
+        return due < datetime.now().date()
+
+    except Exception:
+        return False
+
+
+def action_kpis(actions):
+
+    total = len(actions)
+
+    open_count = sum(
+        1
+        for action in actions
+        if str(
+            action.get(
+                "Status",
+                "",
+            )
+        ).lower() == "open"
+    )
+
+    in_progress = sum(
+        1
+        for action in actions
+        if str(
+            action.get(
+                "Status",
+                "",
+            )
+        ).lower() == "in progress"
+    )
+
+    completed = sum(
+        1
+        for action in actions
+        if str(
+            action.get(
+                "Status",
+                "",
+            )
+        ).lower() == "completed"
+    )
+
+    overdue = sum(
+        1
+        for action in actions
+        if action_is_overdue_global(
+            action
+        )
+    )
+
+    return {
+        "total": total,
+        "open": open_count,
+        "in_progress": in_progress,
+        "overdue": overdue,
+        "completed": completed,
+    }
+
+
+# ============================================================
+# OPERATIONAL SNAPSHOTS
+# ============================================================
+
+def save_operational_snapshot(
+    module,
+    records,
+    metrics,
+):
+
+    if not supabase_enabled():
+        st.session_state[
+            f"snapshot_{module}"
+        ] = {
+            "module": module,
+            "records": records,
+            "metrics": metrics,
+            "updated_at": (
+                datetime.now().isoformat()
+            ),
+        }
+        return
+
+    payload = {
+        "module": module,
+        "records": records,
+        "metrics": metrics,
+        "updated_at": (
+            datetime.now().isoformat()
+        ),
+    }
+
+    supabase_request(
+        "POST",
+        "operational_snapshots",
+        params={
+            "on_conflict": "module"
+        },
+        payload=payload,
+    )
+
+
+def load_operational_snapshots():
+
+    if supabase_enabled():
+
+        try:
+            rows = supabase_request(
+                "GET",
+                "operational_snapshots",
+                params={
+                    "select": "*",
+                    "order": "updated_at.desc",
+                },
+            )
+
+            return {
+                row.get("module"): row
+                for row in rows
+            }
+
+        except Exception as e:
+            st.error(
+                f"Operational database error: {e}"
+            )
+
+            return {}
+
+    result = {}
+
+    for key, value in st.session_state.items():
+
+        if key.startswith(
+            "snapshot_"
+        ):
+            result[
+                key.replace(
+                    "snapshot_",
+                    "",
+                )
+            ] = value
+
+    return result
+
+
+# ============================================================
+# WHATSAPP MESSAGE DATABASE
+# ============================================================
+
+def save_whatsapp_message(
+    message,
+):
+
+    if not supabase_enabled():
+
+        if (
+            "whatsapp_messages"
+            not in st.session_state
+        ):
+            st.session_state[
+                "whatsapp_messages"
+            ] = []
+
+        st.session_state[
+            "whatsapp_messages"
+        ].append(message)
+
+        return [message]
+
+    return supabase_request(
+        "POST",
+        "whatsapp_messages",
+        payload=message,
+    )
+
+
+def load_whatsapp_messages():
+
+    if not supabase_enabled():
+
+        return st.session_state.get(
+            "whatsapp_messages",
+            [],
+        )
+
+    return supabase_request(
+        "GET",
+        "whatsapp_messages",
+        params={
+            "select": "*",
+            "order": "message_time.desc",
+        },
+    )
+
+
+# ============================================================
+# AI INTELLIGENCE CONTEXT
+# ============================================================
+
+def build_intelligence_context():
+
+    snapshots = (
+        load_operational_snapshots()
+    )
+
+    actions = load_actions()
+
+    context = {
+        "fleet_size": 21,
+        "operational_snapshots": {},
+        "action_tracker": actions[:100],
+    }
+
+    for module, snapshot in snapshots.items():
+
+        context[
+            "operational_snapshots"
+        ][module] = {
+            "metrics": snapshot.get(
+                "metrics",
+                {},
+            ),
+            "records": snapshot.get(
+                "records",
+                [],
+            )[:100],
+            "updated_at": snapshot.get(
+                "updated_at",
+                "",
+            ),
+        }
+
+    return context
+    # ============================================================
 # MARINE OPERATIONS INTELLIGENCE CENTRE
 # ============================================================
 
@@ -218,20 +870,58 @@ if not st.session_state.logged_in:
         )
 
         if submitted:
-            # LOGIN menggunakan Streamlit Secrets
-            admin_username = st.secrets.get("ADMIN_USERNAME", "admin")
-            admin_password = st.secrets.get("ADMIN_PASSWORD", "")
 
-            if username.strip() == admin_username and password == admin_password:
+            admin_username = st.secrets.get(
+                "ADMIN_USERNAME",
+                "admin"
+            )
+
+            admin_password = st.secrets.get(
+                "ADMIN_PASSWORD",
+                ""
+            )
+
+            if (
+                username.strip() == admin_username
+                and password == admin_password
+            ):
+
                 st.session_state.logged_in = True
                 st.session_state.role = role
                 st.rerun()
+
             else:
-                st.error("Username atau password tidak benar.")
+
+                st.error(
+                    "Username atau password tidak benar."
+                )
 
         st.stop()
 
-    
+
+# ============================================================
+# LOAD PERSISTENT OPERATIONAL DATA
+# ============================================================
+
+if "action_records" not in st.session_state:
+    st.session_state["action_records"] = []
+
+if supabase_enabled():
+
+    try:
+
+        st.session_state[
+            "action_records"
+        ] = load_actions_from_db()
+
+    except Exception as persistence_error:
+
+        st.session_state[
+            "persistence_error"
+        ] = str(
+            persistence_error
+        )
+
 
 # ============================================================
 # SIDEBAR
@@ -255,7 +945,9 @@ with st.sidebar:
     role = st.selectbox(
         "Operational Role",
         ROLES,
-        index=ROLES.index(st.session_state.role)
+        index=ROLES.index(
+            st.session_state.role
+        )
     )
 
     st.session_state.role = role
@@ -306,6 +998,7 @@ with st.sidebar:
 
         st.rerun()
 
+
 # ============================================================
 # HEADER
 # ============================================================
@@ -315,10 +1008,12 @@ st.title(
 )
 
 st.caption(
-    f"Operational Intelligence Platform • {st.session_state.role}"
+    f"Operational Intelligence Platform • "
+    f"{st.session_state.role}"
 )
 
 st.divider()
+
 
 # ============================================================
 # DASHBOARD
@@ -326,7 +1021,9 @@ st.divider()
 
 if menu == "Dashboard":
 
-    st.header("📊 Operations Command Dashboard")
+    st.header(
+        "📊 Operations Command Dashboard"
+    )
 
     st.caption(
         "Marine Operations Intelligence Centre • "
@@ -337,70 +1034,202 @@ if menu == "Dashboard":
     # DASHBOARD DATA
     # =====================================================
 
-    fleet_count = 21
-    active_vessels = 21
+    fleet_count = len(FLEET)
 
-    voyage_records = st.session_state.get(
-        "voyage_records",
-        0
+    active_vessels = sum(
+        1
+        for row in VESSEL_DATA
+        if row.get("Status") == "Active"
     )
 
-    delayed_exception = st.session_state.get(
-        "delayed_exception",
-        0
+    snapshots = load_operational_snapshots()
+
+    voyage_metrics = (
+        snapshots.get(
+            "Voyage Operations",
+            {}
+        ).get(
+            "metrics",
+            {}
+        )
     )
 
-    attention_required = st.session_state.get(
-        "attention_required",
-        0
+    hsse_metrics = (
+        snapshots.get(
+            "HSSE / DPA",
+            {}
+        ).get(
+            "metrics",
+            {}
+        )
     )
 
-    open_defects = st.session_state.get(
-        "open_defects",
-        0
+    pms_metrics = (
+        snapshots.get(
+            "PMS / Maintenance",
+            {}
+        ).get(
+            "metrics",
+            {}
+        )
     )
 
-    certificate_records = st.session_state.get(
-        "certificate_records",
-        0
+    defect_metrics = (
+        snapshots.get(
+            "Defects",
+            {}
+        ).get(
+            "metrics",
+            {}
+        )
     )
 
-    pms_records = st.session_state.get(
-        "pms_records",
-        0
+    certificate_metrics = (
+        snapshots.get(
+            "Certificates",
+            {}
+        ).get(
+            "metrics",
+            {}
+        )
     )
 
-    hsse_findings = st.session_state.get(
-        "hsse_findings",
-        0
+    bunker_metrics = (
+        snapshots.get(
+            "Bunker",
+            {}
+        ).get(
+            "metrics",
+            {}
+        )
     )
 
-    pending_actions = st.session_state.get(
-        "pending_actions",
-        0
+    cargo_metrics = (
+        snapshots.get(
+            "Cargo",
+            {}
+        ).get(
+            "metrics",
+            {}
+        )
     )
+
+    audit_metrics = (
+        snapshots.get(
+            "Audit & Findings",
+            {}
+        ).get(
+            "metrics",
+            {}
+        )
+    )
+
+    voyage_records = voyage_metrics.get(
+        "records",
+        st.session_state.get(
+            "voyage_records",
+            0
+        )
+    )
+
+    delayed_exception = voyage_metrics.get(
+        "delayed",
+        st.session_state.get(
+            "delayed_exception",
+            0
+        )
+    )
+
+    attention_required = voyage_metrics.get(
+        "attention",
+        st.session_state.get(
+            "attention_required",
+            0
+        )
+    )
+
+    open_defects = defect_metrics.get(
+        "open",
+        st.session_state.get(
+            "open_defects",
+            0
+        )
+    )
+
+    certificate_records = certificate_metrics.get(
+        "records",
+        st.session_state.get(
+            "certificate_records",
+            0
+        )
+    )
+
+    pms_records = pms_metrics.get(
+        "records",
+        st.session_state.get(
+            "pms_records",
+            0
+        )
+    )
+
+    hsse_findings = hsse_metrics.get(
+        "open_findings",
+        st.session_state.get(
+            "hsse_findings",
+            0
+        )
+    )
+
+    dashboard_actions = (
+        load_actions_from_db()
+        if supabase_enabled()
+        else st.session_state.get(
+            "action_records",
+            []
+        )
+    )
+
+    action_counts = action_kpis(
+        dashboard_actions
+    )
+
+    pending_actions = (
+    action_counts["open"]
+    + action_counts["in_progress"]
+)
+
+    overdue_actions = action_counts[
+        "overdue"
+    ]
 
     # =====================================================
     # COMMAND STATUS
     # =====================================================
 
-    st.markdown("### 🚨 Command Status")
+    st.markdown(
+        "### 🚨 Command Status"
+    )
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4 = st.columns(
+        4
+    )
 
     with col1:
+
         st.metric(
             "Fleet",
             fleet_count
         )
 
     with col2:
+
         st.metric(
             "Active Vessels",
             active_vessels
         )
 
     with col3:
+
         st.metric(
             "Voyage Attention",
             attention_required
@@ -424,7 +1253,9 @@ if menu == "Dashboard":
     # OPERATIONAL INTELLIGENCE
     # =====================================================
 
-    st.markdown("### 🧠 Operational Intelligence")
+    st.markdown(
+        "### 🧠 Operational Intelligence"
+    )
 
     if critical_alerts == 0:
 
@@ -469,6 +1300,10 @@ if menu == "Dashboard":
                 "PMS Records",
                 "HSSE Findings",
                 "Pending Actions",
+                "Overdue Actions",
+                "Bunker Reports",
+                "Cargo Records",
+                "Audit Open Findings",
             ],
 
             "Value": [
@@ -482,6 +1317,19 @@ if menu == "Dashboard":
                 pms_records,
                 hsse_findings,
                 pending_actions,
+                overdue_actions,
+                bunker_metrics.get(
+                    "records",
+                    0
+                ),
+                cargo_metrics.get(
+                    "records",
+                    0
+                ),
+                audit_metrics.get(
+                    "open",
+                    0
+                ),
             ],
         }
     )
@@ -518,6 +1366,8 @@ if menu == "Dashboard":
             "Open Defects",
             "HSSE Findings",
             "Pending Actions",
+            "Overdue Actions",
+            "Audit Open Findings",
         ]:
 
             status = (
@@ -534,9 +1384,13 @@ if menu == "Dashboard":
                 else "DATA GAP"
             )
 
-        status_list.append(status)
+        status_list.append(
+            status
+        )
 
-    dashboard_df["Status"] = status_list
+    dashboard_df[
+        "Status"
+    ] = status_list
 
     st.dataframe(
         dashboard_df,
@@ -548,7 +1402,9 @@ if menu == "Dashboard":
     # OPERATIONAL PRIORITY
     # =====================================================
 
-    st.markdown("### 🎯 Operational Priority")
+    st.markdown(
+        "### 🎯 Operational Priority"
+    )
 
     if attention_required > 0:
 
@@ -562,7 +1418,8 @@ if menu == "Dashboard":
 
         st.warning(
             f"VOYAGE EXCEPTION: "
-            f"{delayed_exception} delayed / exception record(s) detected."
+            f"{delayed_exception} delayed / "
+            "exception record(s) detected."
         )
 
     elif open_defects > 0:
@@ -597,7 +1454,9 @@ if menu == "Dashboard":
     # INTELLIGENCE DATA COVERAGE
     # =====================================================
 
-    st.markdown("### 🔎 Intelligence Data Coverage")
+    st.markdown(
+        "### 🔎 Intelligence Data Coverage"
+    )
 
     operational_domains = [
         voyage_records,
@@ -609,7 +1468,8 @@ if menu == "Dashboard":
     ]
 
     available_domains = sum(
-        1 for value in operational_domains
+        1
+        for value in operational_domains
         if value > 0
     )
 
@@ -643,9 +1503,8 @@ if menu == "Dashboard":
         "MARINE OPERATIONS INTELLIGENCE CENTRE • "
         "Fleet • HSSE • PMS • Voyage • Risk • AI Copilot"
     )
-
-# ============================================================
-# FLEET
+    # ============================================================
+# FLEET 21
 # ============================================================
 
 elif menu == "Fleet 21":
@@ -683,6 +1542,7 @@ elif menu == "Fleet 21":
         vessel = vessel_rows.iloc[0]
 
         def fleet_value(column_name):
+
             if column_name not in VESSELS_DF.columns:
                 return "N/A"
 
@@ -748,10 +1608,6 @@ elif menu == "Fleet 21":
                 "Risk",
                 vessel_risk,
             )
-
-        # ----------------------------------------------------
-        # DETERMINISTIC VESSEL INTELLIGENCE
-        # ----------------------------------------------------
 
         voyage_text = vessel_voyage.lower()
         defect_text = vessel_defect.lower()
@@ -858,8 +1714,9 @@ elif menu == "Fleet 21":
             "asumsi terhadap data yang belum tersedia."
         )
 
+
 # ============================================================
-# CREW
+# CREW 200
 # ============================================================
 
 elif menu == "Crew 200":
@@ -878,24 +1735,32 @@ elif menu == "Crew 200":
         st.metric("Ratings", "Data Gap")
 
     with c4:
-        st.metric("Expiring Certificates", "Data Gap")
+        st.metric(
+            "Expiring Certificates",
+            "Data Gap"
+        )
 
     st.info(
-        "Modul crew akan dikembangkan dengan matrix competence, "
-        "certificate validity, rank, vessel assignment dan fatigue monitoring."
+        "Modul Crew Intelligence akan dikembangkan dengan "
+        "matrix competence, certificate validity, rank, "
+        "vessel assignment dan fatigue monitoring."
     )
 
+
 # ============================================================
-# VOYAGE
+# VOYAGE OPERATIONS
 # ============================================================
 
 elif menu == "Voyage Operations":
 
-    st.header("⚓ Voyage Operations Intelligence")
+    st.header(
+        "⚓ Voyage Operations Intelligence"
+    )
 
     st.caption(
-        "Voyage monitoring, delay detection, exception identification "
-        "and operational priority assessment."
+        "Voyage monitoring, delay detection, "
+        "exception identification and operational "
+        "priority assessment."
     )
 
     uploaded_voyage = st.file_uploader(
@@ -904,34 +1769,59 @@ elif menu == "Voyage Operations":
         key="voyage_upload",
     )
 
+    voyage_df = pd.DataFrame()
+
     if uploaded_voyage is None:
 
-        voyage_df = pd.DataFrame(
-            columns=[
-                "vessel",
-                "voyage",
-                "origin",
-                "destination",
-                "ETD",
-                "ETA",
-                "status",
-                "remarks",
-            ]
+        snapshots = (
+            load_operational_snapshots()
         )
 
-        st.info(
-            "Upload Voyage Data (CSV) untuk menjalankan "
-            "Voyage Operations Intelligence."
+        saved_voyage = snapshots.get(
+            "Voyage Operations",
+            {}
         )
+
+        saved_records = saved_voyage.get(
+            "records",
+            []
+        )
+
+        if (
+            isinstance(saved_records, list)
+            and saved_records
+        ):
+
+            voyage_df = pd.DataFrame(
+                saved_records
+            )
+
+            st.success(
+                "Voyage data terakhir berhasil "
+                "dimuat dari database Supabase."
+            )
+
+        else:
+
+            st.info(
+                "Upload Voyage Data (CSV) untuk "
+                "menjalankan Voyage Operations Intelligence."
+            )
 
     else:
 
         try:
-            voyage_df = pd.read_csv(uploaded_voyage)
 
-            st.session_state["voyage_data"] = voyage_df.copy()
+            voyage_df = pd.read_csv(
+                uploaded_voyage
+            )
+
+            st.session_state[
+                "voyage_data"
+            ] = voyage_df.copy()
 
         except Exception as e:
+
             st.error(
                 f"Gagal membaca file Voyage/CSV: {e}"
             )
@@ -952,6 +1842,7 @@ elif menu == "Voyage Operations":
         ]
 
         for column in required_columns:
+
             if column not in voyage_df.columns:
                 voyage_df[column] = ""
 
@@ -983,10 +1874,12 @@ elif menu == "Voyage Operations":
             .str.lower()
         )
 
-        delayed_mask = status_text.str.contains(
-            r"delay|delayed|late|exception|hold",
-            regex=True,
-            na=False,
+        delayed_mask = (
+            status_text.str.contains(
+                r"delay|delayed|late|exception|hold",
+                regex=True,
+                na=False,
+            )
         )
 
         attention_mask = (
@@ -1006,30 +1899,71 @@ elif menu == "Voyage Operations":
         attention_count = int(
             attention_mask.sum()
         )
-        st.session_state["voyage_records"] = len(voyage_df)
 
-        st.session_state["delayed_exception"] = delayed_count
+        st.session_state[
+            "voyage_records"
+        ] = len(voyage_df)
 
-        st.session_state["attention_required"] = attention_count
+        st.session_state[
+            "delayed_exception"
+        ] = delayed_count
+
+        st.session_state[
+            "attention_required"
+        ] = attention_count
+
+        # Save permanent snapshot to Supabase.
+        try:
+
+            save_operational_snapshot(
+                "Voyage Operations",
+                voyage_df.to_dict(
+                    orient="records"
+                ),
+                {
+                    "records": len(
+                        voyage_df
+                    ),
+                    "delayed": (
+                        delayed_count
+                    ),
+                    "attention": (
+                        attention_count
+                    ),
+                },
+            )
+
+        except Exception as e:
+
+            st.error(
+                "Voyage database save error: "
+                f"{e}"
+            )
+
         st.markdown(
             "### 📊 Voyage Intelligence"
         )
 
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3 = st.columns(
+            3
+        )
 
         with col1:
+
             st.metric(
                 "Voyage Records",
                 len(voyage_df),
             )
 
         with col2:
+
             st.metric(
                 "Delayed / Exception",
                 delayed_count,
             )
 
         with col3:
+
             st.metric(
                 "Attention Required",
                 attention_count,
@@ -1045,6 +1979,34 @@ elif menu == "Voyage Operations":
             hide_index=True,
         )
 
+        if delayed_count > 0:
+
+            st.markdown(
+                "### ⚠️ Delayed / Exception"
+            )
+
+            st.dataframe(
+                voyage_df[
+                    delayed_mask
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        if attention_count > 0:
+
+            st.markdown(
+                "### 🚨 Attention Required"
+            )
+
+            st.dataframe(
+                voyage_df[
+                    attention_mask
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+
         st.markdown(
             "### 🧠 Voyage Operations Analysis"
         )
@@ -1055,8 +2017,10 @@ elif menu == "Voyage Operations":
             key="analyze_voyage",
         ):
 
-            voyage_context = voyage_df.to_csv(
-                index=False
+            voyage_context = (
+                voyage_df.to_csv(
+                    index=False
+                )
             )
 
             voyage_prompt = f"""
@@ -1119,15 +2083,18 @@ evidence available in the supplied dataset.
             try:
 
                 with st.spinner(
-                    "Gemini sedang menganalisis Voyage Operations..."
+                    "Gemini sedang menganalisis "
+                    "Voyage Operations..."
                 ):
 
-                    voyage_answer = ask_gemini_marine_copilot(
-                        voyage_prompt,
-                        st.session_state.get(
-                            "role",
-                            "Marine Superintendent",
-                        ),
+                    voyage_answer = (
+                        ask_gemini_marine_copilot(
+                            voyage_prompt,
+                            st.session_state.get(
+                                "role",
+                                "Marine Superintendent",
+                            ),
+                        )
                     )
 
                 st.markdown(
@@ -1144,33 +2111,37 @@ evidence available in the supplied dataset.
 
                 if (
                     "429" in error_text
-                    or "RESOURCE_EXHAUSTED" in error_text
+                    or
+                    "RESOURCE_EXHAUSTED"
+                    in error_text
                 ):
 
                     st.warning(
                         "Data Voyage berhasil dimuat, "
                         "tetapi Gemini sedang mencapai "
-                        "batas quota. Silakan coba "
-                        "ANALYZE VOYAGE lagi setelah quota tersedia."
+                        "batas quota."
                     )
 
                 elif (
                     "503" in error_text
-                    or "UNAVAILABLE" in error_text
+                    or
+                    "UNAVAILABLE"
+                    in error_text
                 ):
 
                     st.warning(
                         "Data Voyage berhasil dimuat, "
                         "tetapi Gemini sedang mengalami "
-                        "high demand. Silakan coba "
-                        "ANALYZE VOYAGE lagi."
+                        "high demand."
                     )
 
                 else:
 
                     st.error(
-                        f"Gagal melakukan analisis Voyage: {e}"
+                        "Gagal melakukan analisis "
+                        f"Voyage: {e}"
                     )
+
 
 # ============================================================
 # HSSE / DPA
@@ -1178,11 +2149,14 @@ evidence available in the supplied dataset.
 
 elif menu == "HSSE / DPA":
 
-    st.header("🛡️ HSSE / DPA Intelligence")
+    st.header(
+        "🛡️ HSSE / DPA Intelligence"
+    )
 
     st.caption(
-        "HSSE Intelligence menganalisis data Incident, Near Miss, "
-        "Finding dan Safety Observation yang tersedia."
+        "HSSE Intelligence menganalisis Incident, "
+        "Near Miss, Finding dan Safety Observation "
+        "yang tersedia."
     )
 
     uploaded_hsse = st.file_uploader(
@@ -1191,44 +2165,89 @@ elif menu == "HSSE / DPA":
         key="hsse_upload",
     )
 
+    hsse_df = pd.DataFrame()
+
     if uploaded_hsse is None:
 
-        c1, c2, c3 = st.columns(3)
-
-        with c1:
-            st.metric("Incidents", "0")
-
-        with c2:
-            st.metric("Near Miss", "0")
-
-        with c3:
-            st.metric("Open Findings", "0")
-
-        st.warning(
-            "DATA BELUM TERSEDIA — belum ada HSSE / DPA data."
+        snapshots = (
+            load_operational_snapshots()
         )
 
-        st.info(
-            """
-            Format CSV yang disarankan:
-
-            vessel,event_date,event_type,severity,status,remarks
-
-            Contoh event_type:
-            Incident / Near Miss / Finding / Safety Observation
-
-            Contoh severity:
-            Critical / High / Medium / Low
-
-            Contoh status:
-            Open / Closed / Under Investigation
-            """
+        saved_hsse = snapshots.get(
+            "HSSE / DPA",
+            {}
         )
+
+        saved_records = saved_hsse.get(
+            "records",
+            []
+        )
+
+        if (
+            isinstance(saved_records, list)
+            and saved_records
+        ):
+
+            hsse_df = pd.DataFrame(
+                saved_records
+            )
+
+            st.success(
+                "HSSE data terakhir berhasil "
+                "dimuat dari database Supabase."
+            )
+
+        else:
+
+            c1, c2, c3 = st.columns(3)
+
+            with c1:
+                st.metric(
+                    "Incidents",
+                    "0"
+                )
+
+            with c2:
+                st.metric(
+                    "Near Miss",
+                    "0"
+                )
+
+            with c3:
+                st.metric(
+                    "Open Findings",
+                    "0"
+                )
+
+            st.warning(
+                "DATA BELUM TERSEDIA — "
+                "belum ada HSSE / DPA data."
+            )
+
+            st.info(
+                """
+Format CSV yang disarankan:
+
+vessel,event_date,event_type,severity,status,remarks
+
+event_type:
+Incident / Near Miss / Finding / Safety Observation
+
+severity:
+Critical / High / Medium / Low
+
+status:
+Open / Closed / Under Investigation
+                """
+            )
 
     else:
 
         try:
-            hsse_df = pd.read_csv(uploaded_hsse)
+
+            hsse_df = pd.read_csv(
+                uploaded_hsse
+            )
 
         except Exception as e:
 
@@ -1236,38 +2255,181 @@ elif menu == "HSSE / DPA":
                 f"Gagal membaca file HSSE / CSV: {e}"
             )
 
-        else:
+    if not hsse_df.empty:
+
+        open_findings_count = 0
+        incident_count = 0
+        near_miss_count = 0
+        critical_count = 0
+
+        if "status" in hsse_df.columns:
+
+            status_text = (
+                hsse_df["status"]
+                .astype(str)
+                .str.strip()
+                .str.lower()
+            )
+
+            open_findings_count = int(
+                status_text.isin(
+                    [
+                        "open",
+                        "under investigation",
+                        "in progress",
+                    ]
+                ).sum()
+            )
+
+        if "event_type" in hsse_df.columns:
+
+            event_text = (
+                hsse_df["event_type"]
+                .astype(str)
+                .str.strip()
+                .str.lower()
+            )
+
+            incident_count = int(
+                (
+                    event_text
+                    == "incident"
+                ).sum()
+            )
+
+            near_miss_count = int(
+                (
+                    event_text
+                    == "near miss"
+                ).sum()
+            )
+
+        if "severity" in hsse_df.columns:
+
+            severity_text = (
+                hsse_df["severity"]
+                .astype(str)
+                .str.strip()
+                .str.lower()
+            )
+
+            critical_count = int(
+                (
+                    severity_text
+                    == "critical"
+                ).sum()
+            )
+
+        st.session_state[
+            "hsse_findings"
+        ] = open_findings_count
+
+        try:
+
+            save_operational_snapshot(
+                "HSSE / DPA",
+                hsse_df.to_dict(
+                    orient="records"
+                ),
+                {
+                    "records": len(
+                        hsse_df
+                    ),
+                    "incidents": (
+                        incident_count
+                    ),
+                    "near_miss": (
+                        near_miss_count
+                    ),
+                    "open_findings": (
+                        open_findings_count
+                    ),
+                    "critical": (
+                        critical_count
+                    ),
+                },
+            )
+
+        except Exception as e:
+
+            st.error(
+                "HSSE database save error: "
+                f"{e}"
+            )
+
+        st.markdown(
+            "### 📊 HSSE Summary"
+        )
+
+        c1, c2, c3, c4 = st.columns(
+            4
+        )
+
+        with c1:
 
             st.metric(
                 "HSSE Records",
                 len(hsse_df)
             )
 
-            st.subheader("HSSE / DPA Records")
+        with c2:
 
-            st.dataframe(
-                hsse_df,
-                use_container_width=True
+            st.metric(
+                "Incidents",
+                incident_count
             )
 
-            st.subheader("HSSE Intelligence")
+        with c3:
 
-            if st.button(
-                "ANALYZE HSSE",
-                type="primary",
-                key="analyze_hsse",
-            ):
+            st.metric(
+                "Near Miss",
+                near_miss_count
+            )
 
-                hsse_context = json.dumps(
-                    hsse_df.to_dict(
-                        orient="records"
-                    ),
-                    ensure_ascii=False,
-                    indent=2,
-                    default=str,
-                )
+        with c4:
 
-                hsse_prompt = f"""
+            st.metric(
+                "Open Findings",
+                open_findings_count
+            )
+
+        if critical_count > 0:
+
+            st.warning(
+                f"{critical_count} Critical HSSE "
+                "record(s) terdeteksi."
+            )
+
+        st.subheader(
+            "HSSE / DPA Records"
+        )
+
+        st.dataframe(
+            hsse_df,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.subheader(
+            "HSSE Intelligence"
+        )
+
+        if st.button(
+            "ANALYZE HSSE",
+            type="primary",
+            key="analyze_hsse",
+        ):
+
+            hsse_context = json.dumps(
+                hsse_df.to_dict(
+                    orient="records"
+                ),
+                ensure_ascii=False,
+                indent=2,
+                default=str,
+            )
+
+            hsse_prompt = f"""
 USER REQUEST:
 Analyze the supplied HSSE / DPA data.
 
@@ -1277,15 +2439,17 @@ HSSE / DPA DATA:
 HSSE INTELLIGENCE RULES:
 
 - Analyze ONLY the supplied HSSE data.
-- NEVER invent incidents, near misses, findings,
-  dates, severity, vessel condition or corrective actions.
+- NEVER invent incidents, near misses,
+  findings, dates, severity, vessel condition
+  or corrective actions.
 - If required information is missing, state:
   DATA BELUM TERSEDIA.
-- Identify critical safety risks only when the supplied
-  data supports the assessment.
-- Identify open findings only from the supplied status.
+- Identify critical safety risks only when
+  the supplied data supports the assessment.
+- Identify open findings only from supplied status.
 - Prioritize safety and regulatory compliance.
-- Clearly separate:
+
+Clearly separate:
 
 FACTS
 
@@ -1298,52 +2462,49 @@ PRIORITY ACTIONS
 ESCALATION REQUIRED
 """
 
-                try:
+            try:
 
-                    with st.spinner(
-                        "Gemini sedang menganalisis HSSE..."
-                    ):
+                with st.spinner(
+                    "Gemini sedang "
+                    "menganalisis HSSE..."
+                ):
 
-                        hsse_answer = ask_gemini_marine_copilot(
+                    hsse_answer = (
+                        ask_gemini_marine_copilot(
                             hsse_prompt,
                             st.session_state.get(
                                 "role",
                                 "Marine Superintendent",
                             ),
                         )
-
-                    st.markdown(
-                        "### HSSE / DPA Intelligence Assessment"
                     )
 
-                    st.markdown(hsse_answer)
+                st.markdown(
+                    "### HSSE / DPA "
+                    "Intelligence Assessment"
+                )
 
-                except Exception as e:
+                st.markdown(
+                    hsse_answer
+                )
 
-                    if (
-                        "503" in str(e)
-                        or "UNAVAILABLE" in str(e)
-                    ):
-                        st.warning(
-                            "Data HSSE berhasil dimuat. "
-                            "Gemini sedang mengalami high demand. "
-                            "Silakan klik ANALYZE HSSE lagi."
-                        )
-                    else:
-                        st.error(
-                            f"Gagal menganalisis HSSE: {e}"
-                        )
+            except Exception as e:
 
+                st.error(
+                    "Gagal menganalisis "
+                    f"HSSE: {e}"
+                )
+                # ============================================================
+# PMS / MAINTENANCE
 # ============================================================
-# PMS
-# ============================================================
+
 elif menu == "PMS / Maintenance":
 
     st.header("🔧 PMS / Maintenance Intelligence")
 
     st.caption(
         "PMS Intelligence menganalisis data maintenance yang tersedia. "
-        "Tidak ada data maintenance yang akan dibuat atau diasumsikan oleh sistem."
+        "Sistem tidak membuat atau mengasumsikan data maintenance."
     )
 
     uploaded_pms = st.file_uploader(
@@ -1352,45 +2513,300 @@ elif menu == "PMS / Maintenance":
         key="pms_upload",
     )
 
-    if uploaded_pms is None:
+    pms_df = pd.DataFrame()
 
-        st.metric("Maintenance Records", "0")
+    if uploaded_pms is not None:
+
+        try:
+            pms_df = pd.read_csv(uploaded_pms)
+
+        except Exception as e:
+            st.error(
+                f"Gagal membaca PMS data: {e}"
+            )
+
+    else:
+
+        saved_pms = load_operational_snapshots().get(
+            "PMS / Maintenance",
+            {}
+        )
+
+        saved_records = saved_pms.get(
+            "records",
+            []
+        )
+
+        if isinstance(saved_records, list) and saved_records:
+
+            pms_df = pd.DataFrame(saved_records)
+
+            st.success(
+                "PMS data terakhir berhasil "
+                "dimuat dari database Supabase."
+            )
+
+    if pms_df.empty:
+
+        st.metric(
+            "Maintenance Records",
+            "0"
+        )
 
         st.warning(
-            "DATA BELUM TERSEDIA — belum ada PMS / Maintenance data."
+            "DATA BELUM TERSEDIA — "
+            "belum ada PMS / Maintenance data."
         )
 
         st.info(
             """
-            Format CSV yang disarankan:
+Format CSV:
 
-            vessel,maintenance_task,due_date,status,priority,remarks
+vessel,maintenance_task,due_date,status,priority,remarks
 
-            Contoh nilai status:
-            Planned / Due / Overdue / Completed
+Status:
+Planned / Due / Overdue / Completed
 
-            Contoh priority:
-            Critical / High / Medium / Low
+Priority:
+Critical / High / Medium / Low
             """
         )
 
     else:
 
-        try:
-            pms_df = pd.read_csv(uploaded_pms)
+        required_pms_columns = [
+            "vessel",
+            "maintenance_task",
+            "due_date",
+            "status",
+            "priority",
+            "remarks",
+        ]
 
-            st.metric(
-                "Maintenance Records",
-                len(pms_df)
+        missing_columns = [
+            column
+            for column in required_pms_columns
+            if column not in pms_df.columns
+        ]
+
+        if missing_columns:
+
+            st.error(
+                "Kolom PMS wajib belum lengkap: "
+                + ", ".join(missing_columns)
             )
 
-            st.subheader("PMS / Maintenance Records")
+        else:
+
+            analysis_pms = pms_df.copy()
+
+            analysis_pms["due_date"] = pd.to_datetime(
+                analysis_pms["due_date"],
+                errors="coerce",
+            )
+
+            status_text = (
+                analysis_pms["status"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .str.lower()
+            )
+
+            priority_text = (
+                analysis_pms["priority"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .str.lower()
+            )
+
+            today = pd.Timestamp(
+                datetime.now().date()
+            )
+
+            overdue_mask = (
+                (
+                    status_text == "overdue"
+                )
+                |
+                (
+                    analysis_pms["due_date"].notna()
+                    & (
+                        analysis_pms["due_date"]
+                        < today
+                    )
+                    & (
+                        status_text != "completed"
+                    )
+                )
+            )
+
+            due_mask = (
+                status_text == "due"
+            )
+
+            critical_mask = (
+                priority_text == "critical"
+            ) & (
+                status_text != "completed"
+            )
+
+            high_mask = (
+                priority_text == "high"
+            ) & (
+                status_text != "completed"
+            )
+
+            overdue_count = int(
+                overdue_mask.sum()
+            )
+
+            due_count = int(
+                due_mask.sum()
+            )
+
+            critical_count = int(
+                critical_mask.sum()
+            )
+
+            high_count = int(
+                high_mask.sum()
+            )
+
+            st.session_state[
+                "pms_records"
+            ] = len(analysis_pms)
+
+            try:
+
+                save_operational_snapshot(
+                    "PMS / Maintenance",
+                    analysis_pms.to_dict(
+                        orient="records"
+                    ),
+                    {
+                        "records": len(
+                            analysis_pms
+                        ),
+                        "overdue": overdue_count,
+                        "due": due_count,
+                        "critical": critical_count,
+                        "high": high_count,
+                    },
+                )
+
+            except Exception as e:
+
+                st.error(
+                    "PMS database save error: "
+                    f"{e}"
+                )
+
+            st.markdown(
+                "### 📊 PMS Summary"
+            )
+
+            c1, c2, c3, c4 = st.columns(4)
+
+            with c1:
+                st.metric(
+                    "Maintenance Records",
+                    len(analysis_pms),
+                )
+
+            with c2:
+                st.metric(
+                    "Overdue",
+                    overdue_count,
+                )
+
+            with c3:
+                st.metric(
+                    "Due",
+                    due_count,
+                )
+
+            with c4:
+                st.metric(
+                    "Critical",
+                    critical_count,
+                )
+
+            st.subheader(
+                "PMS / Maintenance Records"
+            )
+
             st.dataframe(
-                pms_df,
-                use_container_width=True
+                analysis_pms,
+                use_container_width=True,
+                hide_index=True,
             )
 
-            st.subheader("PMS Intelligence")
+            st.markdown(
+                "### ⚠️ Maintenance Risk"
+            )
+
+            risk_df = analysis_pms[
+                overdue_mask
+                | critical_mask
+                | high_mask
+            ]
+
+            if risk_df.empty:
+
+                st.success(
+                    "Tidak terdapat maintenance "
+                    "risk prioritas berdasarkan "
+                    "data yang tersedia."
+                )
+
+            else:
+
+                st.dataframe(
+                    risk_df,
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+            st.markdown(
+                "### 🎯 Priority Actions"
+            )
+
+            if overdue_count > 0:
+
+                st.warning(
+                    f"{overdue_count} maintenance "
+                    "task overdue membutuhkan "
+                    "follow-up."
+                )
+
+            elif critical_count > 0:
+
+                st.warning(
+                    f"{critical_count} Critical "
+                    "maintenance task membutuhkan "
+                    "perhatian."
+                )
+
+            elif due_count > 0:
+
+                st.info(
+                    f"{due_count} maintenance task "
+                    "berstatus Due."
+                )
+
+            else:
+
+                st.success(
+                    "Tidak terdapat PMS priority "
+                    "action berdasarkan data "
+                    "yang tersedia."
+                )
+
+            st.markdown(
+                "### 🧠 PMS Intelligence"
+            )
 
             if st.button(
                 "ANALYZE PMS",
@@ -1399,7 +2815,7 @@ elif menu == "PMS / Maintenance":
             ):
 
                 pms_context = json.dumps(
-                    pms_df.to_dict(
+                    analysis_pms.to_dict(
                         orient="records"
                     ),
                     ensure_ascii=False,
@@ -1408,122 +2824,51 @@ elif menu == "PMS / Maintenance":
                 )
 
                 pms_prompt = f"""
-USER REQUEST:
-Analyze the supplied PMS / Maintenance data.
+Analyze ONLY the supplied PMS / Maintenance data.
 
-PMS / MAINTENANCE DATA:
+PMS DATA:
 {pms_context}
 
-PMS INTELLIGENCE RULES:
+RULES:
+- NEVER invent maintenance records.
+- NEVER invent running hours.
+- NEVER invent equipment condition.
+- NEVER invent completion evidence.
+- If information is missing, state:
+  DATA BELUM TERSEDIA.
 
-IMPORTANT OUTPUT REQUIREMENT:
-Your response MUST contain ALL FOUR sections below.
-Do NOT stop after FACTS.
-Do NOT omit any section, even if information is missing.
+Return ALL sections:
 
-1. FACTS
-- Summarize only facts directly supported by the supplied PMS data.
-- Include total maintenance tasks.
-- Include status breakdown.
-- Identify overdue tasks and their vessels when supported by the data.
+FACTS
 
-2. DATA GAPS
-- State important PMS information that is missing from the supplied data.
-- Consider missing running hours, maintenance intervals, completion evidence,
-  responsible person, work order status, technical findings, and verification.
-- If a particular item is not required, say "Tidak ada gap material yang teridentifikasi."
-- NEVER invent missing information.
+DATA GAPS
 
-3. MAINTENANCE RISK
-- Assess maintenance risk using ONLY the supplied status, priority,
-  due date and remarks.
-- Identify vessels/tasks with the highest maintenance risk.
-- Critical + Overdue items must receive the highest attention.
-- High + Overdue or High + Due items must be highlighted.
-- NEVER invent technical condition or equipment failure.
+MAINTENANCE RISK
 
-4. PRIORITY ACTIONS
-- Give practical actions based ONLY on the supplied PMS data.
-- Prioritize overdue and critical maintenance first.
-- Identify the vessel and maintenance task whenever supported.
-- Recommend verification, completion, escalation or follow-up only when justified.
-- NEVER invent work orders, completion dates or technical findings.
-
-FINAL OUTPUT REQUIREMENT:
-
-You MUST complete BOTH sections before ending the response.
-
-1. FACTS
-2. DATA GAPS
-
-Do NOT add Maintenance Risk or Priority Actions.
-
-Section 1 MUST contain facts directly supported by the supplied PMS data.
-
-Section 2 MUST contain important PMS information that is missing from the supplied data.
-
-If information is missing, write "DATA BELUM TERSEDIA."
-
-The response is NOT COMPLETE until sections 1 and 2 are displayed.
-IMPORTANT:
-Write section 2 immediately after section 1.
-Do not end the response after section 1.
+PRIORITY ACTIONS
 """
 
                 with st.spinner(
-                    "Gemini sedang menganalisis PMS..."
+                    "Gemini sedang "
+                    "menganalisis PMS..."
                 ):
 
-                    pms_answer = ask_gemini_marine_copilot(
-                        pms_prompt,
-                        st.session_state.get(
-                            "role",
-                            "Marine Superintendent",
-                        ),
+                    pms_answer = (
+                        ask_gemini_marine_copilot(
+                            pms_prompt,
+                            st.session_state.get(
+                                "role",
+                                "Marine Superintendent",
+                            ),
+                        )
                     )
 
                 st.markdown(
-                    "### PMS Maintenance Intelligence Analysis"
+                    "### PMS Maintenance "
+                    "Intelligence Analysis"
                 )
 
                 st.markdown(pms_answer)
-
-                st.markdown("### 2. DATA GAPS")
-
-                required_pms_columns = [
-                    "vessel",
-                    "maintenance_task",
-                    "due_date",
-                    "status",
-                    "priority",
-                    "remarks",
-                ]
-
-                missing_columns = [
-                    col for col in required_pms_columns
-                    if col not in pms_df.columns
-                ]
-
-                if missing_columns:
-                    st.warning(
-                        "DATA BELUM TERSEDIA — kolom PMS berikut belum tersedia: "
-                        + ", ".join(missing_columns)
-                    )
-                else:
-                    st.markdown(
-                        "- Running Hours & Maintenance Intervals: "
-                        "DATA BELUM TERSEDIA."
-                    )
-                    st.markdown(
-                        "- Work Order / Completion Date: DATA BELUM TERSEDIA."
-                    )
-                    st.markdown(
-                        "- Technical Findings / Maintenance Condition: "
-                        "DATA BELUM TERSEDIA."
-                    )
-
-        except Exception as e:
-            st.error(f"Gagal membaca PMS data: {e}")
 
 
 # ============================================================
@@ -1535,8 +2880,8 @@ elif menu == "Defects":
     st.header("⚠️ Defect Intelligence")
 
     st.caption(
-        "Defect Intelligence menganalisis defect yang tersedia. "
-        "Tidak ada defect yang akan dibuat atau diasumsikan oleh sistem."
+        "Defect Intelligence menganalisis defect "
+        "berdasarkan data yang tersedia."
     )
 
     uploaded_defects = st.file_uploader(
@@ -1545,254 +2890,317 @@ elif menu == "Defects":
         key="defects_upload",
     )
 
-    if uploaded_defects is None:
+    defect_df = pd.DataFrame()
 
-        st.metric("Defect Records", "0")
+    if uploaded_defects is not None:
+
+        try:
+            defect_df = pd.read_csv(
+                uploaded_defects
+            )
+
+        except Exception as e:
+
+            st.error(
+                f"Gagal membaca Defect data: {e}"
+            )
+
+    else:
+
+        saved_defects = (
+            load_operational_snapshots()
+            .get(
+                "Defects",
+                {}
+            )
+        )
+
+        saved_records = saved_defects.get(
+            "records",
+            []
+        )
+
+        if (
+            isinstance(saved_records, list)
+            and saved_records
+        ):
+
+            defect_df = pd.DataFrame(
+                saved_records
+            )
+
+            st.success(
+                "Defect data terakhir berhasil "
+                "dimuat dari database Supabase."
+            )
+
+    if defect_df.empty:
+
+        st.metric(
+            "Defect Records",
+            "0"
+        )
 
         st.warning(
-            "DATA BELUM TERSEDIA — belum ada defect data."
+            "DATA BELUM TERSEDIA — "
+            "belum ada defect data."
         )
 
         st.info(
             """
-            Format CSV yang disarankan:
+Format CSV:
 
-            vessel,defect,severity,reported,due_date,status,responsible
+vessel,defect,severity,reported,due_date,status,responsible
 
-            Severity:
-            Critical / High / Medium / Low
+Severity:
+Critical / High / Medium / Low
 
-            Status:
-            Open / In Progress / Closed
+Status:
+Open / In Progress / Closed
             """
         )
 
     else:
 
-        try:
-            defect_df = pd.read_csv(uploaded_defects)
+        required_columns = [
+            "vessel",
+            "defect",
+            "severity",
+            "reported",
+            "due_date",
+            "status",
+            "responsible",
+        ]
 
-        except Exception as e:
+        missing_columns = [
+            column
+            for column in required_columns
+            if column not in defect_df.columns
+        ]
+
+        if missing_columns:
 
             st.error(
-                f"Gagal membaca file Defects/CSV: {e}"
+                "Kolom Defect wajib belum lengkap: "
+                + ", ".join(missing_columns)
             )
 
         else:
 
-            st.metric(
-                "Defect Records",
-                len(defect_df)
+            analysis_df = defect_df.copy()
+
+            analysis_df["due_date"] = (
+                pd.to_datetime(
+                    analysis_df["due_date"],
+                    errors="coerce",
+                )
             )
 
-            st.subheader("Defect Records")
-
-            st.dataframe(
-                defect_df,
-                use_container_width=True,
-                hide_index=True
+            status_text = (
+                analysis_df["status"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .str.lower()
             )
 
-            st.subheader("Defect Intelligence")
+            severity_text = (
+                analysis_df["severity"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .str.lower()
+            )
 
-            required_columns = [
-                "vessel",
-                "defect",
-                "severity",
-                "reported",
-                "due_date",
-                "status",
-                "responsible",
-            ]
+            today = pd.Timestamp(
+                datetime.now().date()
+            )
 
-            missing_columns = [
-                col for col in required_columns
-                if col not in defect_df.columns
-            ]
+            open_mask = status_text.isin(
+                [
+                    "open",
+                    "in progress",
+                ]
+            )
 
-            if missing_columns:
+            overdue_mask = (
+                analysis_df["due_date"].notna()
+                & (
+                    analysis_df["due_date"]
+                    < today
+                )
+                & (
+                    status_text != "closed"
+                )
+            )
+
+            critical_mask = (
+                severity_text == "critical"
+            ) & (
+                status_text != "closed"
+            )
+
+            high_mask = (
+                severity_text == "high"
+            ) & (
+                status_text != "closed"
+            )
+
+            open_count = int(
+                open_mask.sum()
+            )
+
+            overdue_count = int(
+                overdue_mask.sum()
+            )
+
+            critical_count = int(
+                critical_mask.sum()
+            )
+
+            high_count = int(
+                high_mask.sum()
+            )
+
+            st.session_state[
+                "open_defects"
+            ] = open_count
+
+            try:
+
+                save_operational_snapshot(
+                    "Defects",
+                    analysis_df.to_dict(
+                        orient="records"
+                    ),
+                    {
+                        "records": len(
+                            analysis_df
+                        ),
+                        "open": open_count,
+                        "overdue": overdue_count,
+                        "critical": critical_count,
+                        "high": high_count,
+                    },
+                )
+
+            except Exception as e:
 
                 st.error(
-                    "Kolom wajib belum lengkap: "
-                    + ", ".join(missing_columns)
+                    "Defect database save error: "
+                    f"{e}"
+                )
+
+            st.markdown(
+                "### 📊 Defect Summary"
+            )
+
+            c1, c2, c3, c4 = st.columns(4)
+
+            with c1:
+                st.metric(
+                    "Total Defects",
+                    len(analysis_df),
+                )
+
+            with c2:
+                st.metric(
+                    "Open / In Progress",
+                    open_count,
+                )
+
+            with c3:
+                st.metric(
+                    "Overdue",
+                    overdue_count,
+                )
+
+            with c4:
+                st.metric(
+                    "Critical",
+                    critical_count,
+                )
+
+            st.subheader(
+                "Defect Records"
+            )
+
+            st.dataframe(
+                analysis_df,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            st.markdown(
+                "### 🔴 Critical Defects"
+            )
+
+            critical_df = analysis_df[
+                critical_mask
+            ]
+
+            if critical_df.empty:
+
+                st.info(
+                    "Tidak ada Critical Defect aktif."
                 )
 
             else:
 
-                analysis_df = defect_df.copy()
-
-                analysis_df["due_date"] = pd.to_datetime(
-                    analysis_df["due_date"],
-                    errors="coerce"
+                st.dataframe(
+                    critical_df,
+                    use_container_width=True,
+                    hide_index=True,
                 )
 
-                analysis_df["status"] = (
-                    analysis_df["status"]
-                    .astype(str)
-                    .str.strip()
-                    .str.lower()
+            st.markdown(
+                "### ⏰ Overdue Defects"
+            )
+
+            overdue_df = analysis_df[
+                overdue_mask
+            ]
+
+            if overdue_df.empty:
+
+                st.info(
+                    "Tidak ada Overdue Defect aktif."
                 )
 
-                analysis_df["severity"] = (
-                    analysis_df["severity"]
-                    .astype(str)
-                    .str.strip()
-                    .str.lower()
+            else:
+
+                st.dataframe(
+                    overdue_df,
+                    use_container_width=True,
+                    hide_index=True,
                 )
 
-                today = pd.Timestamp(datetime.now().date())
+            st.markdown(
+                "### Defect Intelligence Assessment"
+            )
 
-                overdue_df = analysis_df[
-                    (analysis_df["due_date"].notna())
-                    & (analysis_df["due_date"] < today)
-                    & (analysis_df["status"] != "closed")
-                ]
-
-                critical_df = analysis_df[
-                    (analysis_df["severity"] == "critical")
-                    & (analysis_df["status"] != "closed")
-                ]
-
-                high_df = analysis_df[
-                    (analysis_df["severity"] == "high")
-                    & (analysis_df["status"] != "closed")
-                ]
-
-                open_df = analysis_df[
-                    analysis_df["status"].isin(
-                        ["open", "in progress"]
-                    )
-                ]
-
-                st.markdown("### Defect Summary")
-
-                col1, col2, col3, col4 = st.columns(4)
-
-                with col1:
-                    st.metric(
-                        "Total Defects",
-                        len(analysis_df)
-                    )
-
-                with col2:
-                    st.metric(
-                        "Open / In Progress",
-                        len(open_df)
-                    )
-
-                with col3:
-                    st.metric(
-                        "Overdue",
-                        len(overdue_df)
-                    )
-
-                with col4:
-                    st.metric(
-                        "Critical",
-                        len(critical_df)
-                    )
-
-                st.markdown("### Critical Defects")
-
-                if critical_df.empty:
-
-                    st.info(
-                        "Tidak ada Critical Defect aktif "
-                        "berdasarkan data yang diberikan."
-                    )
-
-                else:
-
-                    st.dataframe(
-                        critical_df[
-                            [
-                                "vessel",
-                                "defect",
-                                "severity",
-                                "due_date",
-                                "status",
-                                "responsible",
-                            ]
-                        ],
-                        use_container_width=True,
-                        hide_index=True
-                    )
-
-                st.markdown("### Overdue Defects")
-
-                if overdue_df.empty:
-
-                    st.info(
-                        "Tidak ada Overdue Defect aktif "
-                        "berdasarkan data yang diberikan."
-                    )
-
-                else:
-
-                    st.dataframe(
-                        overdue_df[
-                            [
-                                "vessel",
-                                "defect",
-                                "severity",
-                                "due_date",
-                                "status",
-                                "responsible",
-                            ]
-                        ],
-                        use_container_width=True,
-                        hide_index=True
-                    )
-
-                st.markdown("### High Severity Defects")
-
-                if high_df.empty:
-
-                    st.info(
-                        "Tidak ada High Severity Defect aktif."
-                    )
-
-                else:
-
-                    st.dataframe(
-                        high_df[
-                            [
-                                "vessel",
-                                "defect",
-                                "severity",
-                                "due_date",
-                                "status",
-                                "responsible",
-                            ]
-                        ],
-                        use_container_width=True,
-                        hide_index=True
-                    )
-
-                st.markdown("### Defect Intelligence Assessment")
-
-                st.markdown(
-                    f"""
+            st.markdown(
+                f"""
 **FACTS**
 
 - Total defect records: **{len(analysis_df)}**
-- Open / In Progress: **{len(open_df)}**
-- Overdue active defects: **{len(overdue_df)}**
-- Critical active defects: **{len(critical_df)}**
-- High severity active defects: **{len(high_df)}**
+- Open / In Progress: **{open_count}**
+- Overdue active defects: **{overdue_count}**
+- Critical active defects: **{critical_count}**
+- High severity active defects: **{high_count}**
 
 **DATA GAPS**
 
-- Jika informasi teknis defect tidak tersedia: **DATA BELUM TERSEDIA.**
-- Jika root cause tidak tersedia: **DATA BELUM TERSEDIA.**
-- Jika corrective action tidak tersedia: **DATA BELUM TERSEDIA.**
-- Jika completion evidence tidak tersedia: **DATA BELUM TERSEDIA.**
-"""
-                )
+Informasi teknis yang tidak terdapat pada
+dataset tidak akan diasumsikan oleh sistem.
 
-# =========================================================
-# CERTIFICATES
-# =========================================================
+**PRIORITY ACTIONS**
+
+Prioritaskan Critical dan Overdue Defects
+berdasarkan data yang tersedia.
+"""
+            )
+
 
 # ============================================================
 # CERTIFICATES
@@ -1800,11 +3208,14 @@ elif menu == "Defects":
 
 elif menu == "Certificates":
 
-    st.header("📜 Certificate Intelligence")
+    st.header(
+        "📜 Certificate Intelligence"
+    )
 
     st.caption(
-        "Certificate Intelligence menganalisis expiry, statutory, "
-        "class, flag dan operational certificates berdasarkan data yang tersedia."
+        "Certificate Intelligence menganalisis "
+        "expiry dan compliance berdasarkan "
+        "data yang tersedia."
     )
 
     uploaded_certificates = st.file_uploader(
@@ -1813,107 +3224,254 @@ elif menu == "Certificates":
         key="certificates_upload",
     )
 
-    if uploaded_certificates is None:
+    certificates_df = pd.DataFrame()
 
-        st.metric("Certificate Records", "0")
+    if uploaded_certificates is not None:
+
+        try:
+
+            certificates_df = pd.read_csv(
+                uploaded_certificates
+            )
+
+        except Exception as e:
+
+            st.error(
+                "Gagal membaca Certificate "
+                f"data: {e}"
+            )
+
+    else:
+
+        saved_certificates = (
+            load_operational_snapshots()
+            .get(
+                "Certificates",
+                {}
+            )
+        )
+
+        saved_records = (
+            saved_certificates.get(
+                "records",
+                []
+            )
+        )
+
+        if (
+            isinstance(saved_records, list)
+            and saved_records
+        ):
+
+            certificates_df = pd.DataFrame(
+                saved_records
+            )
+
+            st.success(
+                "Certificate data terakhir "
+                "berhasil dimuat dari "
+                "database Supabase."
+            )
+
+    if certificates_df.empty:
+
+        st.metric(
+            "Certificate Records",
+            "0"
+        )
 
         st.warning(
-            "DATA BELUM TERSEDIA — belum ada certificate data."
+            "DATA BELUM TERSEDIA — "
+            "belum ada certificate data."
         )
 
         st.info(
             """
-            Format CSV yang disarankan:
+Format CSV:
 
-            vessel,certificate,certificate_type,issue_date,expiry_date,status,remarks
+vessel,certificate,certificate_type,issue_date,expiry_date,status,remarks
 
-            Contoh certificate_type:
-            Statutory / Class / Flag / Operational
+certificate_type:
+Statutory / Class / Flag / Operational
 
-            Contoh status:
-            Valid / Expired / Suspended
+status:
+Valid / Expired / Suspended
             """
         )
 
     else:
 
-        try:
-            certificates_df = pd.read_csv(
-                uploaded_certificates
+        required_certificate_columns = [
+            "vessel",
+            "certificate",
+            "certificate_type",
+            "issue_date",
+            "expiry_date",
+            "status",
+            "remarks",
+        ]
+
+        missing_columns = [
+            column
+            for column
+            in required_certificate_columns
+            if column
+            not in certificates_df.columns
+        ]
+
+        if missing_columns:
+
+            st.error(
+                "Kolom Certificate wajib "
+                "belum lengkap: "
+                + ", ".join(
+                    missing_columns
+                )
             )
 
-            certificates_df["expiry_date"] = pd.to_datetime(
-                certificates_df["expiry_date"],
-                errors="coerce"
+        else:
+
+            analysis_cert = (
+                certificates_df.copy()
+            )
+
+            analysis_cert[
+                "expiry_date"
+            ] = pd.to_datetime(
+                analysis_cert["expiry_date"],
+                errors="coerce",
             )
 
             today = pd.Timestamp.today().normalize()
 
-            certificates_df["days_to_expiry"] = (
-                certificates_df["expiry_date"] - today
+            analysis_cert[
+                "days_to_expiry"
+            ] = (
+                analysis_cert["expiry_date"]
+                - today
             ).dt.days
 
-            expired_df = certificates_df[
-                certificates_df["days_to_expiry"] < 0
-            ]
-
-            expiring_df = certificates_df[
-                (certificates_df["days_to_expiry"] >= 0)
-                & (certificates_df["days_to_expiry"] <= 30)
-            ]
-
-            st.metric(
-                "Certificate Records",
-                len(certificates_df)
+            expired_mask = (
+                analysis_cert[
+                    "days_to_expiry"
+                ] < 0
             )
 
-            st.subheader("Certificate Records")
-
-            st.dataframe(
-                certificates_df,
-                use_container_width=True
+            expiring_mask = (
+                analysis_cert[
+                    "days_to_expiry"
+                ].between(
+                    0,
+                    30,
+                    inclusive="both",
+                )
             )
 
-            st.subheader("Certificate Intelligence")
+            expired_count = int(
+                expired_mask.sum()
+            )
+
+            expiring_count = int(
+                expiring_mask.sum()
+            )
+
+            st.session_state[
+                "certificate_records"
+            ] = len(
+                analysis_cert
+            )
+
+            try:
+
+                save_operational_snapshot(
+                    "Certificates",
+                    analysis_cert.to_dict(
+                        orient="records"
+                    ),
+                    {
+                        "records": len(
+                            analysis_cert
+                        ),
+                        "expired": (
+                            expired_count
+                        ),
+                        "expiring_30d": (
+                            expiring_count
+                        ),
+                    },
+                )
+
+            except Exception as e:
+
+                st.error(
+                    "Certificate database "
+                    f"save error: {e}"
+                )
+
+            st.markdown(
+                "### 📊 Certificate Summary"
+            )
 
             c1, c2, c3 = st.columns(3)
 
             with c1:
+
                 st.metric(
-                    "Expired",
-                    len(expired_df)
+                    "Certificate Records",
+                    len(analysis_cert),
                 )
 
             with c2:
+
                 st.metric(
-                    "Expiring ≤ 30 Days",
-                    len(expiring_df)
+                    "Expired",
+                    expired_count,
                 )
 
             with c3:
+
                 st.metric(
-                    "Valid / Other",
-                    len(certificates_df)
-                    - len(expired_df)
-                    - len(expiring_df)
+                    "Expiring ≤ 30 Days",
+                    expiring_count,
                 )
 
-            if len(expired_df) > 0:
+            st.subheader(
+                "Certificate Records"
+            )
 
-                st.subheader("🔴 Expired Certificates")
+            st.dataframe(
+                analysis_cert,
+                use_container_width=True,
+                hide_index=True,
+            )
 
-                st.dataframe(
-                    expired_df,
-                    use_container_width=True
+            if expired_count > 0:
+
+                st.markdown(
+                    "### 🔴 Expired Certificates"
                 )
 
-            if len(expiring_df) > 0:
+                st.dataframe(
+                    analysis_cert[
+                        expired_mask
+                    ],
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
-                st.subheader("🟠 Certificates Expiring ≤ 30 Days")
+            if expiring_count > 0:
+
+                st.markdown(
+                    "### 🟠 Certificates "
+                    "Expiring ≤ 30 Days"
+                )
 
                 st.dataframe(
-                    expiring_df,
-                    use_container_width=True
+                    analysis_cert[
+                        expiring_mask
+                    ],
+                    use_container_width=True,
+                    hide_index=True,
                 )
 
             if st.button(
@@ -1922,67 +3480,71 @@ elif menu == "Certificates":
                 key="analyze_certificates",
             ):
 
-                certificate_context = json.dumps(
-                    certificates_df.to_dict(
-                        orient="records"
-                    ),
-                    ensure_ascii=False,
-                    indent=2,
-                    default=str,
+                certificate_context = (
+                    json.dumps(
+                        analysis_cert.to_dict(
+                            orient="records"
+                        ),
+                        ensure_ascii=False,
+                        indent=2,
+                        default=str,
+                    )
                 )
 
                 certificate_prompt = f"""
-USER REQUEST:
-Analyze the supplied vessel certificate data.
+Analyze ONLY the supplied vessel
+certificate data.
 
 CERTIFICATE DATA:
 {certificate_context}
 
-CERTIFICATE INTELLIGENCE RULES:
-- Analyze ONLY the supplied certificate data.
-- NEVER invent certificate records.
+RULES:
+- NEVER invent certificates.
 - NEVER invent expiry dates.
-- NEVER invent statutory, class, flag or operational status.
-- Identify expired certificates only from the supplied expiry_date.
-- Identify certificates expiring within 30 days only from the supplied data.
-- If required information is missing, state:
+- Identify expired certificates only
+  from supplied data.
+- Identify certificates expiring within
+  30 days only from supplied data.
+- If required information is missing:
   DATA BELUM TERSEDIA.
-- Clearly separate:
-  FACTS
-  EXPIRY RISK
-  COMPLIANCE RISK
-  DATA GAPS
-  PRIORITY ACTIONS
-- Safety and statutory compliance issues must be escalated appropriately.
+
+Return:
+
+FACTS
+
+EXPIRY RISK
+
+COMPLIANCE RISK
+
+DATA GAPS
+
+PRIORITY ACTIONS
 """
 
                 with st.spinner(
-                    "Gemini sedang menganalisis certificates..."
+                    "Gemini sedang menganalisis "
+                    "Certificates..."
                 ):
 
-                    certificate_answer = ask_gemini_marine_copilot(
-                        certificate_prompt,
-                        st.session_state.get(
-                            "role",
-                            "Marine Superintendent",
-                        ),
+                    certificate_answer = (
+                        ask_gemini_marine_copilot(
+                            certificate_prompt,
+                            st.session_state.get(
+                                "role",
+                                "Marine Superintendent",
+                            ),
+                        )
                     )
 
                 st.markdown(
-                    "### Certificate Intelligence Assessment"
+                    "### Certificate "
+                    "Intelligence Assessment"
                 )
 
                 st.markdown(
                     certificate_answer
                 )
-
-        except Exception as e:
-
-            st.error(
-                f"Gagal membaca Certificate data: {e}"
-            )
-
-# ============================================================
+                # ============================================================
 # BUNKER
 # ============================================================
 
@@ -1991,9 +3553,8 @@ elif menu == "Bunker":
     st.header("⛽ Bunker Intelligence")
 
     st.caption(
-        "Bunker Intelligence menganalisis data bunker yang tersedia. "
-        "Tidak ada konsumsi, quantity, ROB atau alert yang akan dibuat "
-        "atau diasumsikan oleh sistem."
+        "Bunker Intelligence menggunakan data aktual yang tersedia. "
+        "Sistem tidak mengarang quantity, ROB atau consumption."
     )
 
     uploaded_bunker = st.file_uploader(
@@ -2002,216 +3563,267 @@ elif menu == "Bunker":
         key="bunker_upload",
     )
 
-    if uploaded_bunker is None:
+    bunker_df = pd.DataFrame()
+
+    if uploaded_bunker is not None:
+
+        try:
+            bunker_df = pd.read_csv(
+                uploaded_bunker
+            )
+
+        except Exception as e:
+            st.error(
+                f"Gagal membaca Bunker data: {e}"
+            )
+
+    else:
+
+        saved_bunker = (
+            load_operational_snapshots()
+            .get(
+                "Bunker",
+                {}
+            )
+        )
+
+        saved_records = saved_bunker.get(
+            "records",
+            []
+        )
+
+        if (
+            isinstance(saved_records, list)
+            and saved_records
+        ):
+
+            bunker_df = pd.DataFrame(
+                saved_records
+            )
+
+            st.success(
+                "Bunker data terakhir berhasil "
+                "dimuat dari database Supabase."
+            )
+
+    if bunker_df.empty:
 
         c1, c2, c3 = st.columns(3)
 
         with c1:
-            st.metric("Vessels", "21")
+            st.metric(
+                "Vessels",
+                21
+            )
 
         with c2:
-            st.metric("Bunker Reports", "0")
+            st.metric(
+                "Bunker Reports",
+                0
+            )
 
         with c3:
-            st.metric("Consumption Alerts", "0")
+            st.metric(
+                "Consumption Alerts",
+                0
+            )
 
         st.warning(
-            "DATA BELUM TERSEDIA — belum ada bunker data."
+            "DATA BELUM TERSEDIA — "
+            "belum ada Bunker data."
         )
 
         st.info(
             """
-            Format CSV yang disarankan:
+Format CSV:
 
-            vessel,date,fuel_type,quantity_mt,rob_mt,consumption_mt_day,remarks
+vessel,date,fuel_type,quantity_mt,rob_mt,consumption_mt_day,remarks
 
-            Contoh fuel_type:
-            MGO / HFO / VLSFO
-
-            Data harus berasal dari laporan bunker aktual.
+fuel_type:
+MGO / HFO / VLSFO
             """
         )
 
     else:
 
+        alert_count = 0
+
+        if "remarks" in bunker_df.columns:
+
+            alert_mask = (
+                bunker_df["remarks"]
+                .fillna("")
+                .astype(str)
+                .str.contains(
+                    r"alert|low|high consumption|abnormal|shortage",
+                    case=False,
+                    regex=True,
+                    na=False,
+                )
+            )
+
+            alert_count = int(
+                alert_mask.sum()
+            )
+
+        elif (
+            "consumption_mt_day"
+            in bunker_df.columns
+        ):
+
+            consumption = pd.to_numeric(
+                bunker_df[
+                    "consumption_mt_day"
+                ],
+                errors="coerce",
+            )
+
+            if consumption.notna().any():
+
+                average_consumption = (
+                    consumption.mean()
+                )
+
+                alert_count = int(
+                    (
+                        consumption
+                        > average_consumption * 1.20
+                    ).sum()
+                )
+
         try:
-            bunker_df = pd.read_csv(uploaded_bunker)
+
+            save_operational_snapshot(
+                "Bunker",
+                bunker_df.to_dict(
+                    orient="records"
+                ),
+                {
+                    "records": len(
+                        bunker_df
+                    ),
+                    "alerts": alert_count,
+                },
+            )
 
         except Exception as e:
 
             st.error(
-                f"Gagal membaca file Bunker/CSV: {e}"
+                "Bunker database save error: "
+                f"{e}"
             )
 
-        else:
+        st.markdown(
+            "### 📊 Bunker Summary"
+        )
+
+        c1, c2 = st.columns(2)
+
+        with c1:
 
             st.metric(
                 "Bunker Reports",
                 len(bunker_df)
             )
 
-            st.subheader("Bunker Records")
+        with c2:
 
-            st.dataframe(
-                bunker_df,
-                use_container_width=True
+            st.metric(
+                "Consumption Alerts",
+                alert_count
             )
 
-            st.subheader("Bunker Intelligence")
+        st.subheader(
+            "Bunker Records"
+        )
 
-            alert_count = 0
+        st.dataframe(
+            bunker_df,
+            use_container_width=True,
+            hide_index=True,
+        )
 
-            if "remarks" in bunker_df.columns:
+        if alert_count > 0:
 
-                alert_count = bunker_df["remarks"].astype(
-                    str
-                ).str.contains(
-                    "alert|low|high consumption|abnormal",
-                    case=False,
-                    na=False
-                ).sum()
+            st.warning(
+                f"{alert_count} bunker record "
+                "memerlukan operational review."
+            )
 
-            elif "consumption_mt_day" in bunker_df.columns:
+        st.markdown(
+            "### 🧠 Bunker Intelligence"
+        )
 
-                values = pd.to_numeric(
-                    bunker_df["consumption_mt_day"],
-                    errors="coerce"
-                )
+        if st.button(
+            "ANALYZE BUNKER",
+            type="primary",
+            key="analyze_bunker",
+        ):
 
-                if values.notna().any():
+            bunker_context = json.dumps(
+                bunker_df.to_dict(
+                    orient="records"
+                ),
+                ensure_ascii=False,
+                indent=2,
+                default=str,
+            )
 
-                    average_consumption = values.mean()
-
-                    alert_count = (
-                        values >
-                        average_consumption * 1.20
-                    ).sum()
-
-            c1, c2 = st.columns(2)
-
-            with c1:
-                st.metric(
-                    "Bunker Reports",
-                    len(bunker_df)
-                )
-
-            with c2:
-                st.metric(
-                    "Consumption Alerts",
-                    int(alert_count)
-                )
-
-            if alert_count > 0:
-
-                st.warning(
-                    f"⚠️ {int(alert_count)} bunker record "
-                    "memerlukan review."
-                )
-
-            if st.button(
-                "ANALYZE BUNKER",
-                type="primary",
-                key="analyze_bunker",
-            ):
-
-                bunker_context = json.dumps(
-                    bunker_df.to_dict(
-                        orient="records"
-                    ),
-                    ensure_ascii=False,
-                    indent=2,
-                    default=str,
-                )
-
-                bunker_prompt = f"""
-USER REQUEST:
-Analyze the supplied Bunker data for marine fleet operations.
+            bunker_prompt = f"""
+Analyze ONLY the supplied Bunker data.
 
 BUNKER DATA:
 {bunker_context}
 
-BUNKER INTELLIGENCE RULES:
+RULES:
 
-- Analyze ONLY the supplied bunker data.
 - NEVER invent fuel quantity.
 - NEVER invent ROB.
-- NEVER invent fuel consumption.
-- NEVER invent bunker price.
+- NEVER invent consumption.
 - NEVER invent bunker delivery.
-- NEVER invent vessel operating condition.
+- NEVER invent bunker price.
 - NEVER invent fuel shortage.
-- Identify abnormal consumption ONLY when the supplied
-  data supports the assessment.
-- Identify low ROB ONLY when the supplied data explicitly
-  contains sufficient ROB information.
-- If required information is missing, state:
+- Identify abnormal consumption ONLY when
+  the data supports it.
+- If information is missing:
   DATA BELUM TERSEDIA.
 
-Clearly separate:
+Return:
 
 FACTS
+
 DATA GAPS
+
 BUNKER RISK
+
 CONSUMPTION ALERTS
+
 PRIORITY ACTIONS
-
-Prioritize:
-1. Safety
-2. Operational continuity
-3. Fuel availability
-4. Abnormal consumption
-5. Data quality
-
-Do not make assumptions beyond the supplied data.
 """
 
-                try:
+            with st.spinner(
+                "Gemini sedang menganalisis "
+                "Bunker..."
+            ):
 
-                    with st.spinner(
-                        "Gemini sedang menganalisis Bunker..."
-                    ):
-
-                        bunker_answer = (
-                            ask_gemini_marine_copilot(
-                                bunker_prompt,
-                                st.session_state.get(
-                                    "role",
-                                    "Marine Superintendent",
-                                ),
-                            )
-                        )
-
-                    st.markdown(
-                        "### Bunker Intelligence Assessment"
+                bunker_answer = (
+                    ask_gemini_marine_copilot(
+                        bunker_prompt,
+                        st.session_state.get(
+                            "role",
+                            "Marine Superintendent",
+                        ),
                     )
+                )
 
-                    st.markdown(
-                        bunker_answer
-                    )
+            st.markdown(
+                "### Bunker Intelligence Assessment"
+            )
 
-                except Exception as e:
+            st.markdown(
+                bunker_answer
+            )
 
-                    if (
-                        "503" in str(e)
-                        or "UNAVAILABLE" in str(e)
-                    ):
-
-                        st.warning(
-                            "Data Bunker berhasil dimuat, "
-                            "tetapi Gemini sedang mengalami "
-                            "high demand. Silakan klik "
-                            "ANALYZE BUNKER lagi."
-                        )
-
-                    else:
-
-                        st.error(
-                            f"Gagal melakukan analisis Bunker: {e}"
-                        )
-
-# ============================================================
-# CARGO
-# ============================================================
 
 # ============================================================
 # CARGO
@@ -2219,7 +3831,15 @@ Do not make assumptions beyond the supplied data.
 
 elif menu == "Cargo":
 
-    st.header("📦 Cargo Operations")
+    st.header(
+        "📦 Cargo Operations Intelligence"
+    )
+
+    st.caption(
+        "Cargo Intelligence menggunakan data cargo "
+        "yang tersedia dan tidak membuat asumsi "
+        "terhadap quantity, delay atau condition."
+    )
 
     uploaded_cargo = st.file_uploader(
         "Upload Cargo Data (CSV)",
@@ -2227,188 +3847,624 @@ elif menu == "Cargo":
         key="cargo_upload",
     )
 
-    if uploaded_cargo is None:
+    cargo_df = pd.DataFrame()
 
-        cargo_df = pd.DataFrame(
-            columns=[
-                "vessel",
-                "cargo_date",
-                "cargo_type",
-                "quantity_mt",
-                "origin",
-                "destination",
-                "status",
-                "remarks",
-            ]
+    if uploaded_cargo is not None:
+
+        try:
+
+            cargo_df = pd.read_csv(
+                uploaded_cargo
+            )
+
+        except Exception as e:
+
+            st.error(
+                f"Gagal membaca Cargo data: {e}"
+            )
+
+    else:
+
+        saved_cargo = (
+            load_operational_snapshots()
+            .get(
+                "Cargo",
+                {}
+            )
+        )
+
+        saved_records = saved_cargo.get(
+            "records",
+            []
+        )
+
+        if (
+            isinstance(saved_records, list)
+            and saved_records
+        ):
+
+            cargo_df = pd.DataFrame(
+                saved_records
+            )
+
+            st.success(
+                "Cargo data terakhir berhasil "
+                "dimuat dari database Supabase."
+            )
+
+    if cargo_df.empty:
+
+        st.warning(
+            "DATA BELUM TERSEDIA — "
+            "belum ada Cargo data."
         )
 
         st.info(
-            "Upload Cargo Data (CSV) untuk menjalankan "
-            "Cargo Intelligence."
+            """
+Format CSV:
+
+vessel,cargo_date,cargo_type,quantity_mt,origin,destination,status,remarks
+            """
         )
 
     else:
 
-        try:
-            cargo_df = pd.read_csv(uploaded_cargo)
+        total_cargo = len(
+            cargo_df
+        )
 
-        except Exception as e:
-            st.error(f"Gagal membaca file Cargo/CSV: {e}")
-            cargo_df = pd.DataFrame()
+        delayed_cargo = 0
+        attention_cargo = 0
 
-        if not cargo_df.empty:
+        if "status" in cargo_df.columns:
 
-            st.subheader("📋 Cargo Records")
-
-            st.dataframe(
-                cargo_df,
-                use_container_width=True,
-                hide_index=True,
+            delayed_mask = (
+                cargo_df["status"]
+                .fillna("")
+                .astype(str)
+                .str.contains(
+                    r"delayed|delay|hold",
+                    case=False,
+                    regex=True,
+                    na=False,
+                )
             )
 
-            # ====================================================
-            # CARGO METRICS
-            # ====================================================
+            delayed_cargo = int(
+                delayed_mask.sum()
+            )
 
-            total_cargo = len(cargo_df)
+        if "remarks" in cargo_df.columns:
 
-            delayed_cargo = 0
-
-            if "status" in cargo_df.columns:
-                delayed_cargo = int(
-                    cargo_df["status"]
-                    .astype(str)
-                    .str.contains(
-                        "delayed|delay",
-                        case=False,
-                        na=False,
-                    )
-                    .sum()
+            attention_mask = (
+                cargo_df["remarks"]
+                .fillna("")
+                .astype(str)
+                .str.contains(
+                    r"delay|delayed|shortage|damage|risk|abnormal|hold",
+                    case=False,
+                    regex=True,
+                    na=False,
                 )
+            )
 
-            attention_cargo = 0
+            attention_cargo = int(
+                attention_mask.sum()
+            )
 
-            if "remarks" in cargo_df.columns:
-                attention_cargo = int(
-                    cargo_df["remarks"]
-                    .astype(str)
-                    .str.contains(
-                        "delay|delayed|shortage|damage|risk|abnormal",
-                        case=False,
-                        na=False,
-                    )
-                    .sum()
-                )
+        try:
 
-            col1, col2, col3 = st.columns(3)
+            save_operational_snapshot(
+                "Cargo",
+                cargo_df.to_dict(
+                    orient="records"
+                ),
+                {
+                    "records": total_cargo,
+                    "delayed": delayed_cargo,
+                    "attention": attention_cargo,
+                },
+            )
 
-            with col1:
-                st.metric(
-                    "Cargo Records",
-                    total_cargo,
-                )
+        except Exception as e:
 
-            with col2:
-                st.metric(
-                    "Delayed Cargo",
-                    delayed_cargo,
-                )
+            st.error(
+                "Cargo database save error: "
+                f"{e}"
+            )
 
-            with col3:
-                st.metric(
-                    "Attention Required",
-                    attention_cargo,
-                )
+        st.session_state[
+            "cargo_records"
+        ] = total_cargo
 
-            # ====================================================
-            # CARGO INTELLIGENCE
-            # ====================================================
+        st.markdown(
+            "### 📊 Cargo Summary"
+        )
 
-            if st.button(
-                "ANALYZE CARGO",
-                type="primary",
-                key="analyze_cargo",
-            ):
+        c1, c2, c3 = st.columns(
+            3
+        )
 
-                cargo_context = cargo_df.to_csv(
-                    index=False
-                )
+        with c1:
 
-                cargo_prompt = f"""
-USER REQUEST:
-Analyze supplied Cargo data for marine fleet operations.
+            st.metric(
+                "Cargo Records",
+                total_cargo
+            )
+
+        with c2:
+
+            st.metric(
+                "Delayed Cargo",
+                delayed_cargo
+            )
+
+        with c3:
+
+            st.metric(
+                "Attention Required",
+                attention_cargo
+            )
+
+        st.subheader(
+            "📋 Cargo Records"
+        )
+
+        st.dataframe(
+            cargo_df,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.markdown(
+            "### 🧠 Cargo Intelligence"
+        )
+
+        if st.button(
+            "ANALYZE CARGO",
+            type="primary",
+            key="analyze_cargo",
+        ):
+
+            cargo_context = json.dumps(
+                cargo_df.to_dict(
+                    orient="records"
+                ),
+                ensure_ascii=False,
+                indent=2,
+                default=str,
+            )
+
+            cargo_prompt = f"""
+Analyze ONLY the supplied Cargo data.
 
 CARGO DATA:
 {cargo_context}
 
-CARGO INTELLIGENCE RULES:
-- Analyze ONLY supplied cargo data.
-- NEVER invent cargo quantity, cargo type, origin,
-  destination, status, delay, damage, shortage,
-  vessel condition, ETA or voyage linkage.
-- Identify delay or cargo risk only when explicitly
-  supported by supplied data.
-- If required information is missing, state:
+RULES:
+
+- NEVER invent cargo quantity.
+- NEVER invent cargo type.
+- NEVER invent cargo condition.
+- NEVER invent delay.
+- NEVER invent damage.
+- NEVER invent shortage.
+- NEVER invent ETA / ETD.
+- If required information is missing:
   DATA BELUM TERSEDIA.
-- Clearly separate:
+
+Return:
 
 FACTS
-DATA GAPS
-CARGO RISK
-PRIORITY ACTIONS
 
-- Prioritize safety, cargo integrity,
-  operational continuity and compliance.
-- Do not make assumptions beyond supplied data.
+DATA GAPS
+
+CARGO RISK
+
+OPERATIONAL EXCEPTIONS
+
+PRIORITY ACTIONS
 """
 
-                try:
+            with st.spinner(
+                "Gemini sedang "
+                "menganalisis Cargo..."
+            ):
 
-                    with st.spinner(
-                        "Gemini sedang menganalisis Cargo..."
-                    ):
-
-                        cargo_answer = ask_gemini_marine_copilot(
-                            cargo_prompt,
-                            st.session_state.get(
-                                "role",
-                                "Marine Superintendent",
-                            ),
-                        )
-
-                    st.markdown(
-                        "### Cargo Intelligence Assessment"
+                cargo_answer = (
+                    ask_gemini_marine_copilot(
+                        cargo_prompt,
+                        st.session_state.get(
+                            "role",
+                            "Marine Superintendent",
+                        ),
                     )
+                )
 
-                    st.markdown(cargo_answer)
+            st.markdown(
+                "### Cargo Intelligence Assessment"
+            )
 
-                except Exception as e:
+            st.markdown(
+                cargo_answer
+            )
 
-                    if (
-                        "503" in str(e)
-                        or "UNAVAILABLE" in str(e)
-                    ):
 
-                        st.warning(
-                            "Data Cargo berhasil dimuat, "
-                            "tetapi Gemini sedang mengalami "
-                            "high demand. Silakan klik "
-                            "ANALYZE CARGO lagi."
+# ============================================================
+# AUDIT & FINDINGS
+# ============================================================
+
+elif menu == "Audit & Findings":
+
+    st.header(
+        "🔍 Audit & Findings Intelligence"
+    )
+
+    st.caption(
+        "Audit, inspection, observation, "
+        "non-conformity dan corrective action monitoring."
+    )
+
+    uploaded_audit = st.file_uploader(
+        "Upload Audit & Findings Data (CSV)",
+        type=["csv"],
+        key="audit_upload",
+    )
+
+    audit_df = pd.DataFrame()
+
+    if uploaded_audit is not None:
+
+        try:
+
+            audit_df = pd.read_csv(
+                uploaded_audit
+            )
+
+        except Exception as e:
+
+            st.error(
+                "Gagal membaca Audit & Findings "
+                f"data: {e}"
+            )
+
+    else:
+
+        saved_audit = (
+            load_operational_snapshots()
+            .get(
+                "Audit & Findings",
+                {}
+            )
+        )
+
+        saved_records = saved_audit.get(
+            "records",
+            []
+        )
+
+        if (
+            isinstance(saved_records, list)
+            and saved_records
+        ):
+
+            audit_df = pd.DataFrame(
+                saved_records
+            )
+
+            st.success(
+                "Audit data terakhir berhasil "
+                "dimuat dari database Supabase."
+            )
+
+    if audit_df.empty:
+
+        st.warning(
+            "DATA BELUM TERSEDIA — "
+            "belum ada Audit & Findings data."
+        )
+
+        st.info(
+            """
+Format CSV:
+
+finding_id,vessel,audit_type,finding,severity,status,due_date,responsible,remarks
+
+Severity:
+Critical / High / Medium / Low
+
+Status:
+Open / In Progress / Closed
+            """
+        )
+
+    else:
+
+        required_audit_columns = [
+            "finding_id",
+            "vessel",
+            "audit_type",
+            "finding",
+            "severity",
+            "status",
+            "due_date",
+            "responsible",
+            "remarks",
+        ]
+
+        for column in required_audit_columns:
+
+            if column not in audit_df.columns:
+                audit_df[column] = ""
+
+        status_text = (
+            audit_df["status"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .str.lower()
+        )
+
+        severity_text = (
+            audit_df["severity"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .str.lower()
+        )
+
+        open_mask = status_text.isin(
+            [
+                "open",
+                "in progress",
+            ]
+        )
+
+        critical_mask = (
+            severity_text == "critical"
+        ) & open_mask
+
+        high_mask = (
+            severity_text == "high"
+        ) & open_mask
+
+        open_count = int(
+            open_mask.sum()
+        )
+
+        critical_count = int(
+            critical_mask.sum()
+        )
+
+        high_count = int(
+            high_mask.sum()
+        )
+
+        try:
+
+            save_operational_snapshot(
+                "Audit & Findings",
+                audit_df.to_dict(
+                    orient="records"
+                ),
+                {
+                    "records": len(
+                        audit_df
+                    ),
+                    "open": open_count,
+                    "critical": critical_count,
+                    "high": high_count,
+                },
+            )
+
+        except Exception as e:
+
+            st.error(
+                "Audit database save error: "
+                f"{e}"
+            )
+
+        st.markdown(
+            "### 📊 Audit Summary"
+        )
+
+        c1, c2, c3, c4 = st.columns(
+            4
+        )
+
+        with c1:
+
+            st.metric(
+                "Audit / Findings Records",
+                len(audit_df)
+            )
+
+        with c2:
+
+            st.metric(
+                "Open Findings",
+                open_count
+            )
+
+        with c3:
+
+            st.metric(
+                "Critical",
+                critical_count
+            )
+
+        with c4:
+
+            st.metric(
+                "High",
+                high_count
+            )
+
+        st.subheader(
+            "Audit & Finding Records"
+        )
+
+        st.dataframe(
+            audit_df,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.markdown(
+            "### ➕ Create Action From Finding"
+        )
+
+        finding_options = []
+
+        for index, row in audit_df.iterrows():
+
+            finding_id = str(
+                row.get(
+                    "finding_id",
+                    "",
+                )
+            ).strip()
+
+            finding = str(
+                row.get(
+                    "finding",
+                    "",
+                )
+            ).strip()
+
+            label = (
+                f"{finding_id} — {finding}"
+                if finding_id
+                else f"Finding {index + 1} — {finding}"
+            )
+
+            finding_options.append(
+                (
+                    label,
+                    index,
+                )
+            )
+
+        selected_finding_label = (
+            st.selectbox(
+                "Select Finding",
+                [
+                    item[0]
+                    for item in finding_options
+                ],
+                key="audit_selected_finding",
+            )
+        )
+
+        selected_finding_index = next(
+            item[1]
+            for item in finding_options
+            if item[0]
+            == selected_finding_label
+        )
+
+        selected_finding = (
+            audit_df.loc[
+                selected_finding_index
+            ]
+        )
+
+        if st.button(
+            "CREATE ACTION FROM FINDING",
+            type="primary",
+            key="audit_create_action",
+        ):
+
+            current_actions = load_actions()
+
+            audit_action = {
+                "Action ID": (
+                    next_action_id(
+                        current_actions
+                    )
+                ),
+                "Vessel": str(
+                    selected_finding.get(
+                        "vessel",
+                        "All Fleet",
+                    )
+                ),
+                "Source": (
+                    "Audit & Findings"
+                ),
+                "Description": str(
+                    selected_finding.get(
+                        "finding",
+                        "",
+                    )
+                ),
+                "Priority": (
+                    str(
+                        selected_finding.get(
+                            "severity",
+                            "Medium",
                         )
-
-                    else:
-
-                        st.error(
-                            f"Gagal melakukan analisis Cargo: {e}"
+                    ).title()
+                ),
+                "Responsible": str(
+                    selected_finding.get(
+                        "responsible",
+                        "",
+                    )
+                ),
+                "Due Date": str(
+                    selected_finding.get(
+                        "due_date",
+                        "",
+                    )
+                )[:10],
+                "Status": "Open",
+                "Remarks": (
+                    "Created from Audit Finding "
+                    + str(
+                        selected_finding.get(
+                            "finding_id",
+                            "",
                         )
+                    )
+                ),
+                "Created": (
+                    datetime.now()
+                    .isoformat()
+                ),
+                "Updated": (
+                    datetime.now()
+                    .isoformat()
+                ),
+                "Completed": "",
+                "Created By": "admin",
+                "Role": (
+                    st.session_state.get(
+                        "role",
+                        "Marine Superintendent",
+                    )
+                ),
+            }
 
-# ============================================================
-# ACTION TRACKER
-# ============================================================
+            try:
 
-# ============================================================
-# ACTION TRACKER
-# ============================================================
+                create_action_persistent(
+                    audit_action
+                )
+
+                st.success(
+                    f"{audit_action['Action ID']} "
+                    "berhasil dibuat di "
+                    "Action Tracker."
+                )
+
+            except Exception as e:
+
+                st.error(
+                    "Gagal membuat Action dari "
+                    f"Finding: {e}"
+                )
+
 
 # ============================================================
 # ACTION TRACKER
@@ -2416,31 +4472,53 @@ PRIORITY ACTIONS
 
 elif menu == "Action Tracker":
 
-    st.header("✅ Action Tracker")
+    st.header(
+        "✅ Action Tracker"
+    )
 
-    # --------------------------------------------------------
-    # INITIALIZE ACTION STORAGE
-    # --------------------------------------------------------
+    st.caption(
+        "Persistent operational action monitoring "
+        "untuk Fleet, HSSE, PMS, Defects, "
+        "Certificates, Audit dan operations."
+    )
 
-    if "action_records" not in st.session_state:
-        st.session_state["action_records"] = []
+    # ========================================================
+    # LOAD ACTIONS
+    # ========================================================
 
-    if "pending_actions" not in st.session_state:
-        st.session_state["pending_actions"] = 0
+    try:
 
-    if "overdue_actions" not in st.session_state:
-        st.session_state["overdue_actions"] = 0
+        actions = load_actions()
 
-    # --------------------------------------------------------
-    # MASTER DATA
-    # --------------------------------------------------------
+    except Exception as e:
 
-    action_statuses = [
-        "Open",
-        "In Progress",
-        "Completed",
-        "Cancelled",
-    ]
+        st.error(
+            "Gagal membaca Action Tracker: "
+            f"{e}"
+        )
+
+        actions = []
+
+    if supabase_enabled():
+
+        st.success(
+            "🟢 Persistent Database: CONNECTED"
+        )
+
+    else:
+
+        st.warning(
+            "🟡 Persistent Database belum aktif. "
+            "Data hanya tersimpan pada session Streamlit."
+        )
+
+    # ========================================================
+    # CREATE NEW ACTION
+    # ========================================================
+
+    st.subheader(
+        "➕ Create New Action"
+    )
 
     action_priorities = [
         "Critical",
@@ -2449,374 +4527,301 @@ elif menu == "Action Tracker":
         "Low",
     ]
 
+    action_statuses = [
+        "Open",
+        "In Progress",
+        "Completed",
+    ]
+
     action_sources = [
-        "HSSE",
-        "Audit",
-        "Defect",
-        "PMS",
         "Voyage",
-        "Certificate",
+        "HSSE",
+        "PMS",
+        "Defects",
+        "Certificates",
         "Bunker",
         "Cargo",
+        "Audit & Findings",
+        "WhatsApp",
         "Management",
         "Other",
     ]
 
-    # --------------------------------------------------------
-    # HELPER - OVERDUE
-    # --------------------------------------------------------
-
-    def action_is_overdue(action):
-
-        if action.get("Status") in [
-            "Completed",
-            "Cancelled",
-        ]:
-            return False
-
-        due_date = action.get("Due Date")
-
-        if not due_date:
-            return False
-
-        try:
-
-            if isinstance(due_date, str):
-                due_date = datetime.strptime(
-                    due_date,
-                    "%Y-%m-%d"
-                ).date()
-
-            elif isinstance(due_date, datetime):
-                due_date = due_date.date()
-
-            return due_date < datetime.now().date()
-
-        except Exception:
-
-            return False
-
-    # --------------------------------------------------------
-    # GET CURRENT ACTIONS
-    # --------------------------------------------------------
-
-    actions = st.session_state.get(
-        "action_records",
-        []
-    )
-
-    # --------------------------------------------------------
-    # CREATE NEW ACTION
-    # --------------------------------------------------------
-
-    st.subheader("➕ Create New Action")
-
     with st.form(
         "create_action_form",
-        clear_on_submit=True
+        clear_on_submit=False,
     ):
 
-        col1, col2, col3 = st.columns(3)
+        c1, c2, c3 = st.columns(
+            3
+        )
 
-        with col1:
+        with c1:
 
-            vessel = st.selectbox(
+            new_vessel = st.selectbox(
                 "Vessel",
-                ["All Fleet"] + list(FLEET),
-                key="create_action_vessel",
+                ["All Fleet"] + FLEET,
             )
 
-            source = st.selectbox(
-                "Source",
-                action_sources,
-                key="create_action_source",
-            )
+        with c2:
 
-        with col2:
-
-            priority = st.selectbox(
+            new_priority = st.selectbox(
                 "Priority",
                 action_priorities,
-                key="create_action_priority",
+                index=2,
             )
 
-            responsible = st.text_input(
-                "Responsible / PIC",
-                key="create_action_responsible",
+        with c3:
+
+            new_source = st.selectbox(
+                "Source",
+                action_sources,
             )
 
-        with col3:
+        c4, c5, c6 = st.columns(
+            3
+        )
 
-            due_date = st.date_input(
-                "Due Date",
-                value=datetime.now().date(),
-                key="create_action_due_date",
+        with c4:
+
+            new_responsible = (
+                st.text_input(
+                    "Responsible / PIC"
+                )
             )
 
-            status = st.selectbox(
+        with c5:
+
+            new_status = st.selectbox(
                 "Status",
                 action_statuses,
-                key="create_action_status",
             )
 
-        description = st.text_area(
-            "Action Description",
-            placeholder=(
-                "Masukkan tindakan yang harus dilakukan..."
-            ),
-            key="create_action_description",
+        with c6:
+
+            new_due_date = (
+                st.date_input(
+                    "Due Date"
+                )
+            )
+
+        new_description = st.text_area(
+            "Action Description"
         )
 
-        remarks = st.text_area(
-            "Remarks",
-            placeholder=(
-                "Catatan tambahan / follow-up..."
-            ),
-            key="create_action_remarks",
+        new_remarks = st.text_area(
+            "Remarks"
         )
 
-        create_action = st.form_submit_button(
-            "CREATE ACTION",
-            use_container_width=True,
+        create_action_button = (
+            st.form_submit_button(
+                "CREATE ACTION",
+                type="primary",
+            )
         )
 
-    # --------------------------------------------------------
-    # SAVE NEW ACTION
-    # --------------------------------------------------------
+    if create_action_button:
 
-    if create_action:
-
-        if not description.strip():
+        if not new_description.strip():
 
             st.warning(
                 "Action Description wajib diisi."
             )
 
-        elif not responsible.strip():
-
-            st.warning(
-                "Responsible / PIC wajib diisi."
-            )
-
         else:
 
-            next_id = (
-                len(
-                    st.session_state[
-                        "action_records"
-                    ]
-                )
-                + 1
-            )
-
             new_action = {
-
-                "Action ID":
-                    f"ACT-{next_id:04d}",
-
-                "Vessel":
-                    vessel,
-
-                "Source":
-                    source,
-
-                "Description":
-                    description.strip(),
-
-                "Priority":
-                    priority,
-
-                "Responsible":
-                    responsible.strip(),
-
-                "Due Date":
-                    due_date.strftime(
+                "Action ID": (
+                    next_action_id(
+                        actions
+                    )
+                ),
+                "Vessel": new_vessel,
+                "Source": new_source,
+                "Description": (
+                    new_description.strip()
+                ),
+                "Priority": new_priority,
+                "Responsible": (
+                    new_responsible.strip()
+                ),
+                "Due Date": (
+                    new_due_date.strftime(
                         "%Y-%m-%d"
-                    ),
-
-                "Status":
-                    status,
-
-                "Remarks":
-                    remarks.strip(),
-
-                "Created":
-                    datetime.now().strftime(
-                        "%Y-%m-%d %H:%M"
-                    ),
+                    )
+                ),
+                "Status": new_status,
+                "Remarks": (
+                    new_remarks.strip()
+                ),
+                "Created": (
+                    datetime.now()
+                    .isoformat()
+                ),
+                "Updated": (
+                    datetime.now()
+                    .isoformat()
+                ),
+                "Completed": "",
+                "Created By": "admin",
+                "Role": (
+                    st.session_state.get(
+                        "role",
+                        "Marine Superintendent",
+                    )
+                ),
             }
 
-            st.session_state[
-                "action_records"
-            ].append(
-                new_action
-            )
+            try:
 
-            st.success(
-                f"{new_action['Action ID']} berhasil dibuat."
-            )
+                create_action_persistent(
+                    new_action
+                )
 
-            st.rerun()
+                st.success(
+                    f"{new_action['Action ID']} "
+                    "berhasil disimpan."
+                )
 
-    # --------------------------------------------------------
-    # CALCULATE KPI
-    # --------------------------------------------------------
+                st.rerun()
 
-    actions = st.session_state.get(
-        "action_records",
-        []
+            except Exception as e:
+
+                st.error(
+                    "Action gagal disimpan: "
+                    f"{e}"
+                )
+
+    # ========================================================
+    # ACTION KPI
+    # ========================================================
+
+    try:
+
+        actions = load_actions()
+
+    except Exception:
+
+        actions = []
+
+    counts = action_kpis(
+        actions
     )
 
-    total_actions = len(actions)
-
-    open_actions = sum(
-        1
-        for action in actions
-        if action.get("Status") == "Open"
+    pending_actions_count = (
+        counts["open"]
+        + counts["in_progress"]
     )
-
-    in_progress_actions = sum(
-        1
-        for action in actions
-        if action.get("Status") == "In Progress"
-    )
-
-    completed_actions = sum(
-        1
-        for action in actions
-        if action.get("Status") == "Completed"
-    )
-
-    overdue_actions = sum(
-        1
-        for action in actions
-        if action_is_overdue(action)
-    )
-
-    pending_actions = sum(
-        1
-        for action in actions
-        if action.get("Status")
-        in [
-            "Open",
-            "In Progress",
-        ]
-    )
-
-    # IMPORTANT:
-    # pending_actions hanya menghitung Open + In Progress.
-    # Overdue tidak ditambahkan lagi agar tidak double count.
 
     st.session_state[
         "pending_actions"
-    ] = pending_actions
+    ] = pending_actions_count
 
     st.session_state[
         "overdue_actions"
-    ] = overdue_actions
-
-    # --------------------------------------------------------
-    # KPI
-    # --------------------------------------------------------
+    ] = counts["overdue"]
 
     st.divider()
 
-    st.subheader("📊 Action Tracker KPI")
+    st.subheader(
+        "📊 Action Tracker KPI"
+    )
 
-    k1, k2, k3, k4, k5 = st.columns(5)
+    k1, k2, k3, k4, k5 = (
+        st.columns(5)
+    )
 
     with k1:
 
         st.metric(
             "TOTAL",
-            total_actions,
+            counts["total"]
         )
 
     with k2:
 
         st.metric(
             "OPEN",
-            open_actions,
+            counts["open"]
         )
 
     with k3:
 
         st.metric(
             "IN PROGRESS",
-            in_progress_actions,
+            counts["in_progress"]
         )
 
     with k4:
 
         st.metric(
             "OVERDUE",
-            overdue_actions,
+            counts["overdue"]
         )
 
     with k5:
 
         st.metric(
             "COMPLETED",
-            completed_actions,
+            counts["completed"]
         )
 
-    # --------------------------------------------------------
-    # FILTER
-    # --------------------------------------------------------
+    # ========================================================
+    # ACTION MONITORING
+    # ========================================================
 
     st.divider()
 
-    st.subheader("🔎 Action Monitoring")
+    st.subheader(
+        "🔎 Action Monitoring"
+    )
 
-    f1, f2, f3 = st.columns(3)
+    f1, f2, f3 = st.columns(
+        3
+    )
 
     with f1:
 
         filter_status = st.selectbox(
             "Filter Status",
-            [
-                "All",
-                *action_statuses,
-            ],
+            ["All"] + action_statuses,
             key="action_filter_status",
         )
 
     with f2:
 
-        filter_priority = st.selectbox(
-            "Filter Priority",
-            [
-                "All",
-                *action_priorities,
-            ],
-            key="action_filter_priority",
+        filter_priority = (
+            st.selectbox(
+                "Filter Priority",
+                ["All"] + action_priorities,
+                key="action_filter_priority",
+            )
         )
 
     with f3:
 
-        vessel_options = sorted(
-            list(
-                {
-                    str(
-                        action.get(
-                            "Vessel",
-                            ""
-                        )
+        vessel_filter_options = sorted(
+            {
+                str(
+                    action.get(
+                        "Vessel",
+                        "",
                     )
-                    for action in actions
-                }
-            )
+                )
+                for action in actions
+                if action.get(
+                    "Vessel",
+                    ""
+                )
+            }
         )
 
         filter_vessel = st.selectbox(
             "Filter Vessel",
-            ["All"] + vessel_options,
+            ["All"]
+            + vessel_filter_options,
             key="action_filter_vessel",
         )
-
-    # --------------------------------------------------------
-    # APPLY FILTER
-    # --------------------------------------------------------
 
     filtered_actions = []
 
@@ -2824,30 +4829,31 @@ elif menu == "Action Tracker":
 
         if (
             filter_status != "All"
-            and action.get("Status")
-            != filter_status
+            and action.get(
+                "Status"
+            ) != filter_status
         ):
             continue
 
         if (
             filter_priority != "All"
-            and action.get("Priority")
-            != filter_priority
+            and action.get(
+                "Priority"
+            ) != filter_priority
         ):
             continue
 
         if (
             filter_vessel != "All"
-            and action.get("Vessel")
-            != filter_vessel
+            and action.get(
+                "Vessel"
+            ) != filter_vessel
         ):
             continue
 
-        filtered_actions.append(action)
-
-    # --------------------------------------------------------
-    # ACTION TABLE
-    # --------------------------------------------------------
+        filtered_actions.append(
+            action
+        )
 
     if filtered_actions:
 
@@ -2857,71 +4863,68 @@ elif menu == "Action Tracker":
 
             display_rows.append(
                 {
-                    "Action ID":
+                    "Action ID": (
                         action.get(
                             "Action ID",
-                            ""
-                        ),
-
-                    "Vessel":
+                            "",
+                        )
+                    ),
+                    "Vessel": (
                         action.get(
                             "Vessel",
-                            ""
-                        ),
-
-                    "Source":
+                            "",
+                        )
+                    ),
+                    "Source": (
                         action.get(
                             "Source",
-                            ""
-                        ),
-
-                    "Description":
+                            "",
+                        )
+                    ),
+                    "Description": (
                         action.get(
                             "Description",
-                            ""
-                        ),
-
-                    "Priority":
+                            "",
+                        )
+                    ),
+                    "Priority": (
                         action.get(
                             "Priority",
-                            ""
-                        ),
-
-                    "Responsible":
+                            "",
+                        )
+                    ),
+                    "Responsible": (
                         action.get(
                             "Responsible",
-                            ""
-                        ),
-
-                    "Due Date":
+                            "",
+                        )
+                    ),
+                    "Due Date": (
                         action.get(
                             "Due Date",
-                            ""
-                        ),
-
-                    "Status":
+                            "",
+                        )
+                    ),
+                    "Status": (
                         action.get(
                             "Status",
-                            ""
-                        ),
-
-                    "Overdue":
-                        (
-                            "YES"
-                            if action_is_overdue(
-                                action
-                            )
-                            else "NO"
-                        ),
+                            "",
+                        )
+                    ),
+                    "Overdue": (
+                        "YES"
+                        if action_is_overdue_global(
+                            action
+                        )
+                        else "NO"
+                    ),
                 }
             )
 
-        monitoring_df = pd.DataFrame(
-            display_rows
-        )
-
         st.dataframe(
-            monitoring_df,
+            pd.DataFrame(
+                display_rows
+            ),
             use_container_width=True,
             hide_index=True,
         )
@@ -2933,9 +4936,9 @@ elif menu == "Action Tracker":
             "belum ada action yang sesuai filter."
         )
 
-    # --------------------------------------------------------
-    # UPDATE / DELETE ACTION
-    # --------------------------------------------------------
+    # ========================================================
+    # UPDATE / DELETE
+    # ========================================================
 
     if actions:
 
@@ -2953,10 +4956,12 @@ elif menu == "Action Tracker":
             for action in actions
         ]
 
-        selected_action_id = st.selectbox(
-            "Select Action",
-            action_ids,
-            key="selected_action_id",
+        selected_action_id = (
+            st.selectbox(
+                "Select Action",
+                action_ids,
+                key="selected_action_id",
+            )
         )
 
         selected_action = next(
@@ -2973,198 +4978,280 @@ elif menu == "Action Tracker":
 
         if selected_action:
 
-            u1, u2, u3 = st.columns(3)
+            u1, u2, u3 = st.columns(
+                3
+            )
 
             with u1:
 
-                update_status = st.selectbox(
-                    "Update Status",
-                    action_statuses,
-                    index=(
-                        action_statuses.index(
-                            selected_action.get(
-                                "Status",
-                                "Open"
-                            )
-                        )
-                        if selected_action.get(
-                            "Status",
-                            "Open"
-                        )
-                        in action_statuses
-                        else 0
-                    ),
-                    key="update_action_status",
+                current_status = (
+                    selected_action.get(
+                        "Status",
+                        "Open",
+                    )
+                )
+
+                status_index = (
+                    action_statuses.index(
+                        current_status
+                    )
+                    if current_status
+                    in action_statuses
+                    else 0
+                )
+
+                update_status = (
+                    st.selectbox(
+                        "Update Status",
+                        action_statuses,
+                        index=status_index,
+                        key=(
+                            "update_action_status"
+                        ),
+                    )
                 )
 
             with u2:
 
-                update_priority = st.selectbox(
-                    "Update Priority",
-                    action_priorities,
-                    index=(
-                        action_priorities.index(
-                            selected_action.get(
-                                "Priority",
-                                "Medium"
-                            )
-                        )
-                        if selected_action.get(
-                            "Priority",
-                            "Medium"
-                        )
-                        in action_priorities
-                        else 2
-                    ),
-                    key="update_action_priority",
+                current_priority = (
+                    selected_action.get(
+                        "Priority",
+                        "Medium",
+                    )
+                )
+
+                priority_index = (
+                    action_priorities.index(
+                        current_priority
+                    )
+                    if current_priority
+                    in action_priorities
+                    else 2
+                )
+
+                update_priority = (
+                    st.selectbox(
+                        "Update Priority",
+                        action_priorities,
+                        index=priority_index,
+                        key=(
+                            "update_action_priority"
+                        ),
+                    )
                 )
 
             with u3:
 
-                update_due_date = st.date_input(
-                    "Update Due Date",
-                    value=(
+                try:
+
+                    current_due = (
                         datetime.strptime(
-                            selected_action.get(
-                                "Due Date"
-                            ),
-                            "%Y-%m-%d"
+                            str(
+                                selected_action.get(
+                                    "Due Date",
+                                    "",
+                                )
+                            )[:10],
+                            "%Y-%m-%d",
                         ).date()
-                        if selected_action.get(
-                            "Due Date"
-                        )
-                        else datetime.now().date()
-                    ),
-                    key="update_action_due_date",
+                    )
+
+                except Exception:
+
+                    current_due = (
+                        datetime.now().date()
+                    )
+
+                update_due_date = (
+                    st.date_input(
+                        "Update Due Date",
+                        value=current_due,
+                        key=(
+                            "update_action_due_date"
+                        ),
+                    )
                 )
 
-            update_responsible = st.text_input(
-                "Update Responsible / PIC",
-                value=selected_action.get(
-                    "Responsible",
-                    ""
-                ),
-                key="update_action_responsible",
+            update_responsible = (
+                st.text_input(
+                    "Update Responsible / PIC",
+                    value=(
+                        selected_action.get(
+                            "Responsible",
+                            "",
+                        )
+                    ),
+                    key=(
+                        "update_action_responsible"
+                    ),
+                )
             )
 
-            update_description = st.text_area(
-                "Update Description",
-                value=selected_action.get(
-                    "Description",
-                    ""
-                ),
-                key="update_action_description",
+            update_description = (
+                st.text_area(
+                    "Update Description",
+                    value=(
+                        selected_action.get(
+                            "Description",
+                            "",
+                        )
+                    ),
+                    key=(
+                        "update_action_description"
+                    ),
+                )
             )
 
-            update_remarks = st.text_area(
-                "Update Remarks",
-                value=selected_action.get(
-                    "Remarks",
-                    ""
-                ),
-                key="update_action_remarks",
+            update_remarks = (
+                st.text_area(
+                    "Update Remarks",
+                    value=(
+                        selected_action.get(
+                            "Remarks",
+                            "",
+                        )
+                    ),
+                    key=(
+                        "update_action_remarks"
+                    ),
+                )
             )
 
-            b1, b2 = st.columns(2)
+            b1, b2 = st.columns(
+                2
+            )
 
             with b1:
 
-                update_action = st.button(
+                update_button = st.button(
                     "UPDATE ACTION",
                     use_container_width=True,
-                    key="update_action_button",
+                    key=(
+                        "update_action_button"
+                    ),
                 )
 
             with b2:
 
-                delete_action = st.button(
+                delete_button = st.button(
                     "DELETE ACTION",
                     use_container_width=True,
-                    key="delete_action_button",
+                    key=(
+                        "delete_action_button"
+                    ),
                 )
 
-            # ------------------------------------------------
-            # UPDATE
-            # ------------------------------------------------
+            if update_button:
 
-            if update_action:
+                updated_action = (
+                    selected_action.copy()
+                )
 
-                for action in (
-                    st.session_state[
-                        "action_records"
-                    ]
+                updated_action[
+                    "Status"
+                ] = update_status
+
+                updated_action[
+                    "Priority"
+                ] = update_priority
+
+                updated_action[
+                    "Due Date"
+                ] = (
+                    update_due_date.strftime(
+                        "%Y-%m-%d"
+                    )
+                )
+
+                updated_action[
+                    "Responsible"
+                ] = (
+                    update_responsible.strip()
+                )
+
+                updated_action[
+                    "Description"
+                ] = (
+                    update_description.strip()
+                )
+
+                updated_action[
+                    "Remarks"
+                ] = (
+                    update_remarks.strip()
+                )
+
+                updated_action[
+                    "Updated"
+                ] = (
+                    datetime.now()
+                    .isoformat()
+                )
+
+                if (
+                    update_status
+                    == "Completed"
                 ):
 
-                    if (
-                        action.get(
-                            "Action ID"
-                        )
-                        == selected_action_id
-                    ):
-
-                        action[
-                            "Status"
-                        ] = update_status
-
-                        action[
-                            "Priority"
-                        ] = update_priority
-
-                        action[
-                            "Due Date"
-                        ] = update_due_date.strftime(
-                            "%Y-%m-%d"
-                        )
-
-                        action[
-                            "Responsible"
-                        ] = update_responsible.strip()
-
-                        action[
-                            "Description"
-                        ] = update_description.strip()
-
-                        action[
-                            "Remarks"
-                        ] = update_remarks.strip()
-
-                        break
-
-                st.success(
-                    f"{selected_action_id} berhasil diperbarui."
-                )
-
-                st.rerun()
-
-            # ------------------------------------------------
-            # DELETE
-            # ------------------------------------------------
-
-            if delete_action:
-
-                st.session_state[
-                    "action_records"
-                ] = [
-                    action
-                    for action
-                    in st.session_state[
-                        "action_records"
-                    ]
-                    if action.get(
-                        "Action ID"
+                    updated_action[
+                        "Completed"
+                    ] = (
+                        datetime.now()
+                        .isoformat()
                     )
-                    != selected_action_id
-                ]
 
-                st.success(
-                    f"{selected_action_id} berhasil dihapus."
-                )
+                else:
 
-                st.rerun()
+                    updated_action[
+                        "Completed"
+                    ] = ""
 
-    # --------------------------------------------------------
+                try:
+
+                    update_action_persistent(
+                        selected_action_id,
+                        updated_action,
+                    )
+
+                    st.success(
+                        f"{selected_action_id} "
+                        "berhasil diperbarui."
+                    )
+
+                    st.rerun()
+
+                except Exception as e:
+
+                    st.error(
+                        "Action gagal "
+                        f"diperbarui: {e}"
+                    )
+
+            if delete_button:
+
+                try:
+
+                    delete_action_persistent(
+                        selected_action_id
+                    )
+
+                    st.success(
+                        f"{selected_action_id} "
+                        "berhasil dihapus."
+                    )
+
+                    st.rerun()
+
+                except Exception as e:
+
+                    st.error(
+                        "Action gagal "
+                        f"dihapus: {e}"
+                    )
+
+    # ========================================================
     # EXPORT
-    # --------------------------------------------------------
+    # ========================================================
 
     if actions:
 
@@ -3178,22 +5265,32 @@ elif menu == "Action Tracker":
             actions
         )
 
-        csv_data = export_df.to_csv(
-            index=False
-        ).encode("utf-8")
-
-        st.download_button(
-            label="DOWNLOAD ACTION TRACKER CSV",
-            data=csv_data,
-            file_name="marine_action_tracker.csv",
-            mime="text/csv",
-            use_container_width=True,
-            key="download_action_tracker_csv",
+        csv_data = (
+            export_df.to_csv(
+                index=False
+            ).encode(
+                "utf-8"
+            )
         )
 
-    # --------------------------------------------------------
+        st.download_button(
+            label=(
+                "DOWNLOAD ACTION TRACKER CSV"
+            ),
+            data=csv_data,
+            file_name=(
+                "marine_action_tracker.csv"
+            ),
+            mime="text/csv",
+            use_container_width=True,
+            key=(
+                "download_action_tracker_csv"
+            ),
+        )
+
+    # ========================================================
     # OPERATIONAL PRIORITY
-    # --------------------------------------------------------
+    # ========================================================
 
     st.divider()
 
@@ -3201,28 +5298,31 @@ elif menu == "Action Tracker":
         "🚨 Operational Priority"
     )
 
-    if overdue_actions > 0:
+    if counts["overdue"] > 0:
 
         st.error(
-            f"⚠️ {overdue_actions} action overdue "
-            "dan membutuhkan follow-up."
+            f"⚠️ {counts['overdue']} "
+            "action overdue dan membutuhkan "
+            "follow-up."
         )
 
-    elif open_actions > 0:
+    elif counts["open"] > 0:
 
         st.warning(
-            f"⚠️ {open_actions} action "
-            "masih berstatus Open."
+            f"⚠️ {counts['open']} "
+            "action masih berstatus Open."
         )
 
-    elif in_progress_actions > 0:
+    elif counts[
+        "in_progress"
+    ] > 0:
 
         st.info(
-            f"🔄 {in_progress_actions} action "
-            "sedang dalam proses penyelesaian."
+            f"🔄 {counts['in_progress']} "
+            "action sedang dalam proses."
         )
 
-    elif total_actions > 0:
+    elif counts["total"] > 0:
 
         st.success(
             "✅ Seluruh action telah selesai."
@@ -3234,39 +5334,49 @@ elif menu == "Action Tracker":
             "DATA BELUM TERSEDIA — "
             "belum ada operational action."
         )
-
-# ============================================================
+        # ============================================================
 # AI MARINE COPILOT
 # ============================================================
+
 elif menu == "AI Marine Copilot":
 
-    st.header("🤖 AI Marine Operations Copilot")
-
-    st.caption(
-        f"Decision support untuk {st.session_state.role}"
+    st.header(
+        "🤖 AI Marine Operations Copilot"
     )
 
-    st.subheader("Fleet Intelligence")
+    st.caption(
+        f"Decision support untuk "
+        f"{st.session_state.role}"
+    )
 
     st.info(
         """
-AI Copilot sekarang terhubung dengan data Fleet 21.
-AI hanya boleh menggunakan data yang tersedia dan tidak boleh
-mengarang status kapal, voyage, defect, PMS, certificate,
-HSSE atau risk.
-"""
+AI Marine Copilot menggunakan data operasional
+yang benar-benar tersedia dari Marine Operations
+Intelligence Centre.
+
+AI tidak diperbolehkan mengarang status kapal,
+Voyage, HSSE, PMS, Defect, Certificate, Bunker,
+Cargo, Audit Finding atau Action Tracker.
+        """
     )
 
     prompt = st.text_area(
         "Pertanyaan / Instruksi",
         placeholder=(
-            "Contoh: Buatkan Fleet Risk Assessment untuk 21 kapal "
-            "dan tunjukkan data gap yang harus segera dilengkapi."
+            "Contoh: Buat Fleet Risk Assessment "
+            "berdasarkan data operasional yang tersedia "
+            "dan jelaskan prioritas serta data gap."
         ),
         height=150,
+        key="ai_copilot_prompt",
     )
 
-    if st.button("ASK AI", type="primary"):
+    if st.button(
+        "ASK AI",
+        type="primary",
+        key="ask_ai_copilot",
+    ):
 
         if not prompt.strip():
 
@@ -3278,47 +5388,31 @@ HSSE atau risk.
 
             try:
 
-                # ==========================================
-                # FLEET 21 REAL DATA
-                # ==========================================
+                intelligence_context = (
+                    build_intelligence_context()
+                )
 
-                if (
-                    "VESSEL_DF" in globals()
-                    and hasattr(VESSEL_DF, "to_dict")
-                ):
-
-                    fleet_context = json.dumps(
-                        VESSEL_DF.to_dict(
-                            orient="records"
-                        ),
-                        ensure_ascii=False,
-                        indent=2,
-                        default=str,
-                    )
-
-                else:
-
-                    fleet_context = json.dumps(
-                        VESSEL_DATA,
-                        ensure_ascii=False,
-                        indent=2,
-                        default=str,
-                    )
-
-                # ==========================================
-                # FLEET INTELLIGENCE PROMPT
-                # ==========================================
+                context_json = json.dumps(
+                    intelligence_context,
+                    ensure_ascii=False,
+                    indent=2,
+                    default=str,
+                )
 
                 fleet_prompt = f"""
 USER REQUEST:
+
 {prompt.strip()}
 
-FLEET 21 OPERATIONAL DATA:
-{fleet_context}
 
-FLEET INTELLIGENCE RULES:
+FULL OPERATIONAL INTELLIGENCE DATA:
 
-1. Analyze ONLY the supplied Fleet 21 data.
+{context_json}
+
+
+MARINE OPERATIONS INTELLIGENCE RULES:
+
+1. Analyze ONLY supplied operational data.
 
 2. NEVER invent:
 - vessel status
@@ -3331,55 +5425,120 @@ FLEET INTELLIGENCE RULES:
 - crew condition
 - bunker data
 - cargo data
+- audit finding
+- action status
+- WhatsApp message
 - operational risk
 
-3. If information is missing, unavailable, or marked
-"Data belum tersedia", "Tidak ada data", or
-"Belum dinilai", state clearly:
+3. If required information is missing,
+state clearly:
 
 DATA BELUM TERSEDIA.
 
-4. Do not create a risk ranking when the supplied data
-does not contain enough factual risk information.
+4. Do not create risk ranking when there
+is not enough factual information.
 
-5. Separate the answer into:
+5. Separate response into:
 
 FLEET SUMMARY
+
 RISK ASSESSMENT
+
 TOP PRIORITIES
+
 DATA GAPS
+
 RECOMMENDED ACTIONS
 
-6. For safety-critical matters, recommend escalation
-to the appropriate responsible person.
+6. For safety-critical matters,
+recommend appropriate escalation.
 
-7. Be concise and operational.
+7. Prioritize:
+- Safety
+- Compliance
+- Operational continuity
 
 8. Never present assumptions as facts.
 """
 
                 with st.spinner(
-                    "Gemini sedang menganalisis Fleet 21..."
+                    "Gemini sedang menganalisis "
+                    "Marine Operations Intelligence..."
                 ):
 
-                    answer = ask_gemini_marine_copilot(
-                        fleet_prompt,
-                        st.session_state.role,
+                    answer = (
+                        ask_gemini_marine_copilot(
+                            fleet_prompt,
+                            st.session_state.role,
+                        )
                     )
 
                 st.markdown(
-                    "### 🚢 Fleet Intelligence Analysis"
+                    "### 🧠 Marine Operations "
+                    "Intelligence Assessment"
                 )
 
-                st.markdown(answer)
+                st.markdown(
+                    answer
+                )
+
+                st.session_state[
+                    "ai_history"
+                ].append(
+                    {
+                        "question": (
+                            prompt.strip()
+                        ),
+                        "answer": answer,
+                        "time": (
+                            datetime.now()
+                            .isoformat()
+                        ),
+                    }
+                )
 
             except Exception as e:
 
                 st.error(
-                    f"Gemini gagal memproses Fleet 21: {e}"
+                    "Gemini gagal memproses "
+                    f"Marine Operations Intelligence: {e}"
                 )
 
-        
+    if st.session_state.get(
+        "ai_history"
+    ):
+
+        with st.expander(
+            "AI Analysis History"
+        ):
+
+            for item in reversed(
+                st.session_state[
+                    "ai_history"
+                ][-10:]
+            ):
+
+                st.markdown(
+                    f"**Question:** "
+                    f"{item.get('question', '')}"
+                )
+
+                st.markdown(
+                    item.get(
+                        "answer",
+                        ""
+                    )
+                )
+
+                st.caption(
+                    item.get(
+                        "time",
+                        ""
+                    )
+                )
+
+                st.divider()
+
 
 # ============================================================
 # EXECUTIVE REPORTS
@@ -3387,76 +5546,739 @@ to the appropriate responsible person.
 
 elif menu == "Executive Reports":
 
-    st.header("📑 Executive Reports")
+    st.header(
+        "📑 Executive Reports"
+    )
 
     st.subheader(
         "Daily Marine Operations Brief"
     )
 
-    report_date = datetime.now().strftime(
-        "%d %B %Y"
+    report_date = (
+        datetime.now()
+        .strftime(
+            "%d %B %Y %H:%M"
+        )
     )
 
-    st.write(
-        f"Report date: **{report_date}**"
+    snapshots = (
+        load_operational_snapshots()
+    )
+
+    try:
+
+        report_actions = (
+            load_actions()
+        )
+
+    except Exception:
+
+        report_actions = []
+
+    action_counts = (
+        action_kpis(
+            report_actions
+        )
+    )
+
+    pending_actions = (
+        action_counts["open"]
+        + action_counts["in_progress"]
+    )
+
+    critical_actions = sum(
+        1
+        for action in report_actions
+        if (
+            str(
+                action.get(
+                    "Priority",
+                    ""
+                )
+            ).lower()
+            == "critical"
+            and str(
+                action.get(
+                    "Status",
+                    ""
+                )
+            ).lower()
+            != "completed"
+        )
     )
 
     report = {
-        "Fleet": 21,
-        "Crew": 200,
-        "Critical Risks": 0,
-        "Open Defects": 0,
-        "Open HSSE Findings": 0,
-        "Overdue Actions": 0,
+
+        "Report Date":
+            report_date,
+
+        "Fleet":
+            len(FLEET),
+
+        "Active Vessels":
+            len(FLEET),
+
+        "Voyage Records":
+            snapshots.get(
+                "Voyage Operations",
+                {},
+            ).get(
+                "metrics",
+                {},
+            ).get(
+                "records",
+                0,
+            ),
+
+        "Delayed / Exception":
+            snapshots.get(
+                "Voyage Operations",
+                {},
+            ).get(
+                "metrics",
+                {},
+            ).get(
+                "delayed",
+                0,
+            ),
+
+        "Voyage Attention":
+            snapshots.get(
+                "Voyage Operations",
+                {},
+            ).get(
+                "metrics",
+                {},
+            ).get(
+                "attention",
+                0,
+            ),
+
+        "Open Defects":
+            snapshots.get(
+                "Defects",
+                {},
+            ).get(
+                "metrics",
+                {},
+            ).get(
+                "open",
+                0,
+            ),
+
+        "HSSE Open Findings":
+            snapshots.get(
+                "HSSE / DPA",
+                {},
+            ).get(
+                "metrics",
+                {},
+            ).get(
+                "open_findings",
+                0,
+            ),
+
+        "Certificate Records":
+            snapshots.get(
+                "Certificates",
+                {},
+            ).get(
+                "metrics",
+                {},
+            ).get(
+                "records",
+                0,
+            ),
+
+        "PMS Records":
+            snapshots.get(
+                "PMS / Maintenance",
+                {},
+            ).get(
+                "metrics",
+                {},
+            ).get(
+                "records",
+                0,
+            ),
+
+        "Bunker Reports":
+            snapshots.get(
+                "Bunker",
+                {},
+            ).get(
+                "metrics",
+                {},
+            ).get(
+                "records",
+                0,
+            ),
+
+        "Cargo Records":
+            snapshots.get(
+                "Cargo",
+                {},
+            ).get(
+                "metrics",
+                {},
+            ).get(
+                "records",
+                0,
+            ),
+
+        "Audit Open Findings":
+            snapshots.get(
+                "Audit & Findings",
+                {},
+            ).get(
+                "metrics",
+                {},
+            ).get(
+                "open",
+                0,
+            ),
+
+        "Pending Actions":
+            pending_actions,
+
+        "Overdue Actions":
+            action_counts[
+                "overdue"
+            ],
+
+        "Critical Actions":
+            critical_actions,
     }
 
-    st.json(report)
-
-    st.info(
-        "Executive report otomatis akan dihubungkan "
-        "ke AI Copilot setelah database operasional aktif."
+    st.markdown(
+        "### 📊 Executive Data"
     )
 
+    st.json(
+        report
+    )
+
+    st.subheader(
+        "🚨 Management Attention"
+    )
+
+    priorities = []
+
+    if (
+        report[
+            "Overdue Actions"
+        ] > 0
+    ):
+
+        priorities.append(
+            f"{report['Overdue Actions']} "
+            "overdue action(s)"
+        )
+
+    if (
+        report[
+            "Critical Actions"
+        ] > 0
+    ):
+
+        priorities.append(
+            f"{report['Critical Actions']} "
+            "critical action(s)"
+        )
+
+    if (
+        report[
+            "Delayed / Exception"
+        ] > 0
+    ):
+
+        priorities.append(
+            f"{report['Delayed / Exception']} "
+            "voyage exception(s)"
+        )
+
+    if (
+        report[
+            "Open Defects"
+        ] > 0
+    ):
+
+        priorities.append(
+            f"{report['Open Defects']} "
+            "open defect(s)"
+        )
+
+    if (
+        report[
+            "HSSE Open Findings"
+        ] > 0
+    ):
+
+        priorities.append(
+            f"{report['HSSE Open Findings']} "
+            "open HSSE finding(s)"
+        )
+
+    if (
+        report[
+            "Audit Open Findings"
+        ] > 0
+    ):
+
+        priorities.append(
+            f"{report['Audit Open Findings']} "
+            "open audit finding(s)"
+        )
+
+    if priorities:
+
+        for item in priorities:
+
+            st.warning(
+                item
+            )
+
+    else:
+
+        st.success(
+            "Tidak ada Management Attention "
+            "item berdasarkan data yang tersedia."
+        )
+
+    if st.button(
+        "GENERATE AI DAILY SITREP",
+        type="primary",
+        key="generate_daily_sitrep",
+    ):
+
+        try:
+
+            sitrep_context = (
+                build_intelligence_context()
+            )
+
+            sitrep_json = json.dumps(
+                sitrep_context,
+                ensure_ascii=False,
+                indent=2,
+                default=str,
+            )
+
+            sitrep_prompt = f"""
+Create a Daily Marine Operations SITREP
+based ONLY on supplied operational data.
+
+FULL OPERATIONAL INTELLIGENCE DATA:
+
+{sitrep_json}
+
+RULES:
+
+- Never invent operational facts.
+- If information is unavailable:
+  DATA BELUM TERSEDIA.
+- Prioritize safety, compliance and
+  operational continuity.
+
+Return:
+
+EXECUTIVE SUMMARY
+
+CRITICAL / HIGH RISKS
+
+ACTIONS REQUIRING DECISION
+
+DATA GAPS
+
+RECOMMENDED FOLLOW-UP
+"""
+
+            with st.spinner(
+                "Generating AI Daily SITREP..."
+            ):
+
+                answer = (
+                    ask_gemini_marine_copilot(
+                        sitrep_prompt,
+                        st.session_state.get(
+                            "role",
+                            "Marine Superintendent",
+                        ),
+                    )
+                )
+
+            st.markdown(
+                "### 🤖 AI Daily SITREP"
+            )
+
+            st.markdown(
+                answer
+            )
+
+        except Exception as e:
+
+            st.error(
+                "Gagal membuat Daily SITREP: "
+                f"{e}"
+            )
+
+
 # ============================================================
-# WHATSAPP
+# WHATSAPP OPERATIONS
 # ============================================================
 
 elif menu == "WhatsApp Operations":
 
-    st.header("📱 WhatsApp Operations Intelligence")
+    st.header(
+        "📱 WhatsApp Operations Intelligence"
+    )
+
+    st.caption(
+        "Operational message intake, "
+        "risk classification dan Action Tracker integration."
+    )
 
     st.info(
-        """
-        Modul ini disiapkan untuk integrasi operational
-        communication.
-
-        Tahap berikutnya:
-        1. WhatsApp Business Platform / Cloud API
-        2. Webhook backend
-        3. Operational message database
-        4. AI classification
-        5. Risk extraction
-        6. Vessel mapping
-        7. Escalation
-        """
+        "Live incoming WhatsApp Group membutuhkan "
+        "Meta WhatsApp Cloud API + webhook/backend. "
+        "Manual operational intake di bawah ini "
+        "sudah dapat disimpan ke Supabase."
     )
 
-    whatsapp_df = pd.DataFrame(
-        columns=[
-            "Time",
-            "Vessel",
-            "Sender",
-            "Message",
-            "Risk",
-            "Status",
-        ]
+    # ========================================================
+    # MANUAL MESSAGE INTAKE
+    # ========================================================
+
+    st.subheader(
+        "➕ Manual Operational Message Intake"
     )
 
-    st.dataframe(
-        whatsapp_df,
-        use_container_width=True,
-        hide_index=True
-    )
+    with st.form(
+        "whatsapp_intake_form",
+        clear_on_submit=True,
+    ):
+
+        w1, w2 = st.columns(
+            2
+        )
+
+        with w1:
+
+            wa_vessel = st.selectbox(
+                "Vessel",
+                [
+                    "Unknown / Fleet"
+                ] + FLEET,
+                key="wa_vessel",
+            )
+
+            wa_sender = (
+                st.text_input(
+                    "Sender",
+                    key="wa_sender",
+                )
+            )
+
+        with w2:
+
+            wa_risk = st.selectbox(
+                "Risk",
+                [
+                    "Normal",
+                    "Low",
+                    "Medium",
+                    "High",
+                    "Critical",
+                ],
+                key="wa_risk",
+            )
+
+            wa_status = st.selectbox(
+                "Status",
+                [
+                    "New",
+                    "Reviewed",
+                    "Action Created",
+                    "Closed",
+                ],
+                key="wa_status",
+            )
+
+        wa_message = st.text_area(
+            "Operational Message",
+            placeholder=(
+                "Paste pesan WhatsApp "
+                "operasional di sini..."
+            ),
+            key="wa_message",
+        )
+
+        save_wa = (
+            st.form_submit_button(
+                "SAVE OPERATIONAL MESSAGE",
+                use_container_width=True,
+            )
+        )
+
+    if save_wa:
+
+        if not wa_message.strip():
+
+            st.warning(
+                "Operational Message wajib diisi."
+            )
+
+        else:
+
+            message_record = {
+
+                "message_id":
+                    "WA-"
+                    + uuid.uuid4().hex[:12]
+                    .upper(),
+
+                "message_time":
+                    datetime.now()
+                    .isoformat(),
+
+                "vessel":
+                    wa_vessel,
+
+                "sender":
+                    wa_sender.strip(),
+
+                "message":
+                    wa_message.strip(),
+
+                "risk":
+                    wa_risk,
+
+                "status":
+                    wa_status,
+            }
+
+            try:
+
+                save_whatsapp_message(
+                    message_record
+                )
+
+                st.success(
+                    "Operational WhatsApp message "
+                    "berhasil disimpan."
+                )
+
+                st.rerun()
+
+            except Exception as e:
+
+                st.error(
+                    "Gagal menyimpan WhatsApp "
+                    f"message: {e}"
+                )
+
+    # ========================================================
+    # MESSAGE LOG
+    # ========================================================
+
+    try:
+
+        messages = (
+            load_whatsapp_messages()
+        )
+
+    except Exception as e:
+
+        st.error(
+            "Gagal membaca WhatsApp "
+            f"message: {e}"
+        )
+
+        messages = []
+
+    if messages:
+
+        st.subheader(
+            "📋 Operational Message Log"
+        )
+
+        wa_df = pd.DataFrame(
+            messages
+        )
+
+        st.dataframe(
+            wa_df,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        message_indexes = list(
+            range(
+                len(messages)
+            )
+        )
+
+        selected_index = (
+            st.selectbox(
+                "Select Message for Action",
+                message_indexes,
+                format_func=lambda i: (
+                    str(
+                        messages[i].get(
+                            "message",
+                            "",
+                        )
+                    )[:100]
+                ),
+                key="wa_action_select",
+            )
+        )
+
+        selected_message = (
+            messages[
+                selected_index
+            ]
+        )
+
+        if st.button(
+            "CREATE ACTION FROM WHATSAPP",
+            type="primary",
+            key="create_action_from_whatsapp",
+        ):
+
+            try:
+
+                action_rows = (
+                    load_actions()
+                )
+
+                wa_priority = str(
+                    selected_message.get(
+                        "risk",
+                        "Medium",
+                    )
+                ).title()
+
+                if wa_priority not in [
+                    "Critical",
+                    "High",
+                    "Medium",
+                    "Low",
+                ]:
+
+                    wa_priority = (
+                        "Medium"
+                    )
+
+                wa_action = {
+
+                    "Action ID":
+                        next_action_id(
+                            action_rows
+                        ),
+
+                    "Vessel":
+                        selected_message.get(
+                            "vessel",
+                            "Unknown / Fleet",
+                        ),
+
+                    "Source":
+                        "WhatsApp",
+
+                    "Description":
+                        selected_message.get(
+                            "message",
+                            (
+                                "WhatsApp "
+                                "operational "
+                                "follow-up"
+                            ),
+                        ),
+
+                    "Priority":
+                        wa_priority,
+
+                    "Responsible":
+                        st.session_state.get(
+                            "role",
+                            (
+                                "Marine "
+                                "Superintendent"
+                            ),
+                        ),
+
+                    "Due Date":
+                        datetime.now()
+                        .strftime(
+                            "%Y-%m-%d"
+                        ),
+
+                    "Status":
+                        "Open",
+
+                    "Remarks":
+                        (
+                            "WhatsApp sender: "
+                            + str(
+                                selected_message
+                                .get(
+                                    "sender",
+                                    "",
+                                )
+                            )
+                        ),
+
+                    "Created":
+                        datetime.now()
+                        .isoformat(),
+
+                    "Updated":
+                        datetime.now()
+                        .isoformat(),
+
+                    "Completed":
+                        "",
+
+                    "Created By":
+                        "admin",
+
+                    "Role":
+                        st.session_state.get(
+                            "role",
+                            (
+                                "Marine "
+                                "Superintendent"
+                            ),
+                        ),
+                }
+
+                create_action_persistent(
+                    wa_action
+                )
+
+                st.success(
+                    f"{wa_action['Action ID']} "
+                    "berhasil dibuat dari "
+                    "WhatsApp message."
+                )
+
+                st.rerun()
+
+            except Exception as e:
+
+                st.error(
+                    "Gagal membuat Action dari "
+                    f"WhatsApp: {e}"
+                )
+
+    else:
+
+        st.info(
+            "DATA BELUM TERSEDIA — "
+            "belum ada operational message."
+        )
+
 
 # ============================================================
 # SYSTEM
@@ -3464,28 +6286,192 @@ elif menu == "WhatsApp Operations":
 
 elif menu == "System":
 
-    st.header("⚙️ System Control Centre")
+    st.header(
+        "⚙️ System Control Centre"
+    )
 
     st.subheader(
         "System Status"
     )
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3 = st.columns(
+        3
+    )
 
     with c1:
+
         st.success(
             "Application Online"
         )
 
     with c2:
+
         st.success(
             "Fleet Database Online"
         )
 
     with c3:
+
+        if get_gemini_client() is not None:
+
+            st.success(
+                "AI Framework Ready"
+            )
+
+        else:
+
+            st.warning(
+                "AI Key Not Configured"
+            )
+
+    st.divider()
+
+    st.subheader(
+        "Persistent Database"
+    )
+
+    if supabase_enabled():
+
         st.success(
-            "AI Framework Ready"
+            "🟢 Supabase Database: CONNECTED"
         )
+
+        try:
+
+            database_actions = (
+                load_actions_from_db()
+            )
+
+            database_snapshots = (
+                load_operational_snapshots()
+            )
+
+            database_messages = (
+                load_whatsapp_messages()
+            )
+
+            d1, d2, d3 = st.columns(
+                3
+            )
+
+            with d1:
+
+                st.metric(
+                    "Actions",
+                    len(
+                        database_actions
+                    )
+                )
+
+            with d2:
+
+                st.metric(
+                    "Operational Modules",
+                    len(
+                        database_snapshots
+                    )
+                )
+
+            with d3:
+
+                st.metric(
+                    "WhatsApp Messages",
+                    len(
+                        database_messages
+                    )
+                )
+
+            st.success(
+                "Supabase read test: SUCCESS"
+            )
+
+        except Exception as e:
+
+            st.error(
+                "Supabase configured tetapi "
+                "database read test gagal: "
+                f"{e}"
+            )
+
+    else:
+
+        st.error(
+            "🔴 Persistent Database: "
+            "NOT CONFIGURED"
+        )
+
+        st.info(
+            "Tambahkan SUPABASE_URL dan "
+            "SUPABASE_SECRET_KEY di "
+            "Streamlit Secrets."
+        )
+
+    st.divider()
+
+    st.subheader(
+        "Operational Data Coverage"
+    )
+
+    system_snapshots = (
+        load_operational_snapshots()
+    )
+
+    system_modules = [
+        "Voyage Operations",
+        "HSSE / DPA",
+        "PMS / Maintenance",
+        "Defects",
+        "Certificates",
+        "Bunker",
+        "Cargo",
+        "Audit & Findings",
+    ]
+
+    coverage_rows = []
+
+    for module_name in system_modules:
+
+        snapshot = (
+            system_snapshots.get(
+                module_name,
+                {}
+            )
+        )
+
+        metrics = snapshot.get(
+            "metrics",
+            {}
+        )
+
+        records = metrics.get(
+            "records",
+            0,
+        )
+
+        coverage_rows.append(
+            {
+                "Module":
+                    module_name,
+
+                "Records":
+                    records,
+
+                "Status":
+                    (
+                        "AVAILABLE"
+                        if records > 0
+                        else "DATA GAP"
+                    ),
+            }
+        )
+
+    st.dataframe(
+        pd.DataFrame(
+            coverage_rows
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
 
     st.divider()
 
@@ -3495,23 +6481,36 @@ elif menu == "System":
 
     st.markdown(
         """
-        **Marine Operations Intelligence Centre**
+**Marine Operations Intelligence Centre**
 
-        Application Layer
-        → Streamlit
+**Application Layer**  
+→ Streamlit
 
-        Intelligence Layer
-        → AI Marine Operations Copilot
+**Persistent Data Layer**  
+→ Supabase PostgreSQL + REST API
 
-        Data Layer
-        → Fleet / Crew / Voyage / PMS / HSSE / Defects /
-        Certificates / Bunker / Cargo
+**Intelligence Layer**  
+→ AI Marine Operations Copilot
 
-        Communication Layer
-        → WhatsApp Business Platform
+**Operational Domains**  
+→ Fleet  
+→ Voyage  
+→ HSSE / DPA  
+→ PMS / Maintenance  
+→ Defects  
+→ Certificates  
+→ Bunker  
+→ Cargo  
+→ Audit & Findings  
+→ Action Tracker
 
-        Executive Layer
-        → SITREP / Risk Dashboard / Executive Reports
+**Communication Layer**  
+→ WhatsApp Operations Intelligence
+
+**Executive Layer**  
+→ Dashboard Intelligence  
+→ Daily SITREP  
+→ Executive Reports
         """
     )
 
@@ -3522,7 +6521,9 @@ elif menu == "System":
     )
 
     st.write(
-        "Version: Intelligence Centre Foundation 1.0"
+        "Version: "
+        "Marine Operations Intelligence Centre "
+        "Supabase Stage 1–5"
     )
 
     st.write(
@@ -3534,8 +6535,10 @@ elif menu == "System":
     )
 
     st.write(
-        f"Current role: {st.session_state.role}"
+        "Current role: "
+        f"{st.session_state.get('role', 'Marine Superintendent')}"
     )
+
 
 # ============================================================
 # FOOTER

@@ -1464,7 +1464,7 @@ if menu == "Dashboard":
     certificate_records,
     pms_records,
     hsse_findings,
-    bunker_reports + cargo_records,
+    pending_actions,
 ]
 
     available_domains = sum(

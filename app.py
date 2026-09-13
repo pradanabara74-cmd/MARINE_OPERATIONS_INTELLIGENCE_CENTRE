@@ -1459,13 +1459,13 @@ if menu == "Dashboard":
     )
 
     operational_domains = [
-        voyage_records,
-        open_defects,
-        certificate_records,
-        pms_records,
-        hsse_findings,
-        pending_actions,
-    ]
+    voyage_records,
+    open_defects,
+    certificate_records,
+    pms_records,
+    hsse_findings,
+    bunker_reports + cargo_records,
+]
 
     available_domains = sum(
         1

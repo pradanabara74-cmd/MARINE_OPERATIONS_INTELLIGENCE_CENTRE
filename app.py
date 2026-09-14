@@ -6279,92 +6279,92 @@ elif menu == "WhatsApp Operations":
                         "Medium",
                     )
                 ).title()
-
-                if wa_priority not in [
-                    "Critical",
-                    "High",
-                    "Medium",
-                    "Low",
-                ]:
-                    wa_priority = "Medium"
-
-                wa_action = {
-
-                    "Action ID":
-                        next_action_id(
-                            action_rows
-                        ),
-
-                    "Vessel":
-                        wa_vessel,
-
-                    "Source":
-                        "WhatsApp",
-
-                    "Description":
-                        wa_message_text,
-
-                    "Priority":
-                        wa_priority,
-
-                    "Responsible":
-                        "Marine Superintendent",
-
-                    "Due Date":
-                        (
-                            datetime.now()
-                            .date()
-                            .isoformat()
-                        ),
-
-                    "Status":
-                        "Open",
-
-                    "Remarks":
-                        (
-                            "WhatsApp Message ID: "
-                            + wa_message_id
-                            + " | WhatsApp sender: "
-                            + str(
-                                selected_message.get(
-                                    "sender",
-                                    "",
-                                )
-                            )
-                        ),
-
-                    "Created":
-                        datetime.now()
-                        .isoformat(),
-
-                    "Updated":
-                        datetime.now()
-                        .isoformat(),
-
-                    "Completed":
-                        "",
-
-                    "Created By":
-                        "admin",
-
-                    "Role":
-                        st.session_state.get(
-                            "role",
+    
+                    if wa_priority not in [
+                        "Critical",
+                        "High",
+                        "Medium",
+                        "Low",
+                    ]:
+                        wa_priority = "Medium"
+    
+                    wa_action = {
+    
+                        "Action ID":
+                            next_action_id(
+                                action_rows
+                            ),
+    
+                        "Vessel":
+                            wa_vessel,
+    
+                        "Source":
+                            "WhatsApp",
+    
+                        "Description":
+                            wa_message_text,
+    
+                        "Priority":
+                            wa_priority,
+    
+                        "Responsible":
                             "Marine Superintendent",
-                        ),
-                }
-
-                create_action_persistent(
-                    wa_action
-                )
-
-                st.success(
-                    f"{wa_action['Action ID']} "
-                    "berhasil dibuat dari "
-                    "WhatsApp message."
-                )
-
-                st.rerun()
+    
+                        "Due Date":
+                            (
+                                datetime.now()
+                                .date()
+                                .isoformat()
+                            ),
+    
+                        "Status":
+                            "Open",
+    
+                        "Remarks":
+                            (
+                                "WhatsApp Message ID: "
+                                + wa_message_id
+                                + " | WhatsApp sender: "
+                                + str(
+                                    selected_message.get(
+                                        "sender",
+                                        "",
+                                    )
+                                )
+                            ),
+    
+                        "Created":
+                            datetime.now()
+                            .isoformat(),
+    
+                        "Updated":
+                            datetime.now()
+                            .isoformat(),
+    
+                        "Completed":
+                            "",
+    
+                        "Created By":
+                            "admin",
+    
+                        "Role":
+                            st.session_state.get(
+                                "role",
+                                "Marine Superintendent",
+                            ),
+                    }
+    
+                    create_action_persistent(
+                        wa_action
+                    )
+    
+                    st.success(
+                        f"{wa_action['Action ID']} "
+                        "berhasil dibuat dari "
+                        "WhatsApp message."
+                    )
+    
+                    st.rerun()
             
 
             except Exception as e:

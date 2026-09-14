@@ -6166,9 +6166,112 @@ elif menu == "WhatsApp Operations":
 
             try:
 
-                action_rows = (
-                    load_actions()
+            action_rows = load_actions()
+
+            # ==========================================================
+            # WHATSAPP DUPLICATE PROTECTION
+            # Satu WhatsApp message hanya boleh membuat satu Action
+            # ==========================================================
+
+            wa_message_id = str(
+                selected_message.get(
+                    "message_id",
+                    "",
                 )
+            ).strip()
+
+            wa_message_text = str(
+                selected_message.get(
+                    "message",
+                    "",
+                )
+            ).strip()
+
+            wa_vessel = str(
+                selected_message.get(
+                    "vessel",
+                    "Unknown / Fleet",
+                )
+            ).strip()
+
+            existing_action = None
+
+            for existing_row in action_rows:
+
+                existing_source = str(
+                    existing_row.get(
+                        "Source",
+                        existing_row.get(
+                            "source",
+                            "",
+                        ),
+                    )
+                ).strip()
+
+                existing_description = str(
+                    existing_row.get(
+                        "Description",
+                        existing_row.get(
+                            "description",
+                            "",
+                        ),
+                    )
+                ).strip()
+
+                existing_vessel = str(
+                    existing_row.get(
+                        "Vessel",
+                        existing_row.get(
+                            "vessel",
+                            "",
+                        ),
+                    )
+                ).strip()
+
+                existing_remarks = str(
+                    existing_row.get(
+                        "Remarks",
+                        existing_row.get(
+                            "remarks",
+                            "",
+                        ),
+                    )
+                ).strip()
+
+                message_id_match = (
+                    bool(wa_message_id)
+                    and wa_message_id in existing_remarks
+                )
+
+                legacy_message_match = (
+                    existing_source.lower() == "whatsapp"
+                    and existing_description == wa_message_text
+                    and existing_vessel == wa_vessel
+                )
+
+                if message_id_match or legacy_message_match:
+                    existing_action = existing_row
+                    break
+
+            if existing_action is not None:
+
+                existing_action_id = str(
+                    existing_action.get(
+                        "Action ID",
+                        existing_action.get(
+                            "action_id",
+                            "Existing Action",
+                        ),
+                    )
+                )
+
+                st.warning(
+                    f"WhatsApp message ini sudah memiliki "
+                    f"Action Tracker: {existing_action_id}. "
+                    "Duplikasi tidak dibuat."
+                )
+
+            else:
 
                 wa_priority = str(
                     selected_message.get(
@@ -6183,10 +6286,7 @@ elif menu == "WhatsApp Operations":
                     "Medium",
                     "Low",
                 ]:
-
-                    wa_priority = (
-                        "Medium"
-                    )
+                    wa_priority = "Medium"
 
                 wa_action = {
 
@@ -6196,40 +6296,25 @@ elif menu == "WhatsApp Operations":
                         ),
 
                     "Vessel":
-                        selected_message.get(
-                            "vessel",
-                            "Unknown / Fleet",
-                        ),
+                        wa_vessel,
 
                     "Source":
                         "WhatsApp",
 
                     "Description":
-                        selected_message.get(
-                            "message",
-                            (
-                                "WhatsApp "
-                                "operational "
-                                "follow-up"
-                            ),
-                        ),
+                        wa_message_text,
 
                     "Priority":
                         wa_priority,
 
                     "Responsible":
-                        st.session_state.get(
-                            "role",
-                            (
-                                "Marine "
-                                "Superintendent"
-                            ),
-                        ),
+                        "Marine Superintendent",
 
                     "Due Date":
-                        datetime.now()
-                        .strftime(
-                            "%Y-%m-%d"
+                        (
+                            datetime.now()
+                            .date()
+                            .isoformat()
                         ),
 
                     "Status":
@@ -6237,10 +6322,11 @@ elif menu == "WhatsApp Operations":
 
                     "Remarks":
                         (
-                            "WhatsApp sender: "
+                            "WhatsApp Message ID: "
+                            + wa_message_id
+                            + " | WhatsApp sender: "
                             + str(
-                                selected_message
-                                .get(
+                                selected_message.get(
                                     "sender",
                                     "",
                                 )
@@ -6264,10 +6350,7 @@ elif menu == "WhatsApp Operations":
                     "Role":
                         st.session_state.get(
                             "role",
-                            (
-                                "Marine "
-                                "Superintendent"
-                            ),
+                            "Marine Superintendent",
                         ),
                 }
 
@@ -6282,6 +6365,7 @@ elif menu == "WhatsApp Operations":
                 )
 
                 st.rerun()
+            
 
             except Exception as e:
 

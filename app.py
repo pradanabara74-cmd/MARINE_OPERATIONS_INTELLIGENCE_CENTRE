@@ -78,7 +78,7 @@ Rules:
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
                     temperature=0.2,
-                    max_output_tokens=1200,
+                    max_output_tokens=2500,
                 ),
             )
 

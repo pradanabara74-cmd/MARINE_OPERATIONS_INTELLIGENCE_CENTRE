@@ -1782,15 +1782,15 @@ elif menu == "Voyage Operations":
     if not voyage_df.empty:
 
         required_columns = [
-            "vessel",
-            "voyage",
-            "origin",
-            "destination",
-            "ETD",
-            "ETA",
-            "status",
-            "remarks",
-        ]
+    "Vessel",
+    "Voyage",
+    "Origin",
+    "Destination",
+    "ETD",
+    "ETA",
+    "Status",
+    "Remarks",
+]
 
         for column in required_columns:
 
@@ -1801,29 +1801,29 @@ elif menu == "Voyage Operations":
             required_columns
         ]
 
-        voyage_df["status"] = (
-            voyage_df["status"]
-            .fillna("")
-            .astype(str)
-            .str.strip()
-        )
+        voyage_df["Status"] = (
+    voyage_df["Status"]
+    .fillna("")
+    .astype(str)
+    .str.strip()
+)
 
-        voyage_df["remarks"] = (
-            voyage_df["remarks"]
-            .fillna("")
-            .astype(str)
-            .str.strip()
-        )
+voyage_df["Remarks"] = (
+    voyage_df["Remarks"]
+    .fillna("")
+    .astype(str)
+    .str.strip()
+)
 
-        status_text = (
-            voyage_df["status"]
-            .str.lower()
-        )
+status_text = (
+    voyage_df["Status"]
+    .str.lower()
+)
 
-        remarks_text = (
-            voyage_df["remarks"]
-            .str.lower()
-        )
+remarks_text = (
+    voyage_df["Remarks"]
+    .str.lower()
+)
 
         delayed_mask = (
             status_text.str.contains(

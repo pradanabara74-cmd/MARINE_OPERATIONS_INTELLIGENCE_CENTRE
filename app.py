@@ -1704,14 +1704,11 @@ elif menu == "Crew 200":
 
 elif menu == "Voyage Operations":
 
-    st.header(
-        "⚓ Voyage Operations Intelligence"
-    )
+    st.header("⚓ Voyage Operations Intelligence")
 
     st.caption(
-        "Voyage monitoring, delay detection, "
-        "exception identification and operational "
-        "priority assessment."
+        "Voyage monitoring, delay detection, exception identification "
+        "and operational priority assessment."
     )
 
     uploaded_voyage = st.file_uploader(
@@ -1722,47 +1719,56 @@ elif menu == "Voyage Operations":
 
     voyage_df = pd.DataFrame()
 
+    # ============================================================
+    # LOAD LAST SAVED DATA FROM DATABASE
+    # ============================================================
+
     if uploaded_voyage is None:
 
-        snapshots = (
-            load_operational_snapshots()
-        )
+        try:
+            snapshots = load_operational_snapshots()
 
-        saved_voyage = snapshots.get(
-            "Voyage Operations",
-            {}
-        )
-
-        saved_records = saved_voyage.get(
-            "records",
-            []
-        )
-
-        if (
-            isinstance(saved_records, list)
-            and saved_records
-        ):
-
-            voyage_df = pd.DataFrame(
-                saved_records
+            saved_voyage = snapshots.get(
+                "Voyage Operations",
+                {},
             )
 
-            st.success(
-                "Voyage data terakhir berhasil "
-                "dimuat dari database Supabase."
+            saved_records = saved_voyage.get(
+                "records",
+                [],
             )
 
-        else:
+            if (
+                isinstance(saved_records, list)
+                and len(saved_records) > 0
+            ):
+                voyage_df = pd.DataFrame(
+                    saved_records
+                )
 
-            st.info(
-                "Upload Voyage Data (CSV) untuk "
-                "menjalankan Voyage Operations Intelligence."
+                st.success(
+                    "Voyage data terakhir berhasil "
+                    "dimuat dari database Supabase."
+                )
+
+            else:
+                st.info(
+                    "Upload Voyage Data (CSV) untuk "
+                    "menjalankan Voyage Operations Intelligence."
+                )
+
+        except Exception as e:
+            st.warning(
+                f"Database Voyage belum dapat dibaca: {e}"
             )
+
+    # ============================================================
+    # READ UPLOADED CSV
+    # ============================================================
 
     else:
 
         try:
-
             voyage_df = pd.read_csv(
                 uploaded_voyage
             )
@@ -1772,51 +1778,73 @@ elif menu == "Voyage Operations":
             ] = voyage_df.copy()
 
         except Exception as e:
-
             st.error(
                 f"Gagal membaca file Voyage/CSV: {e}"
             )
 
             voyage_df = pd.DataFrame()
 
+    # ============================================================
+    # PROCESS VOYAGE DATA
+    # ============================================================
+
     if not voyage_df.empty:
 
+        # --------------------------------------------------------
+        # NORMALIZE COLUMN NAMES
+        # --------------------------------------------------------
+
+        voyage_df.columns = [
+            str(column).strip().lower()
+            for column in voyage_df.columns
+        ]
+
         required_columns = [
-    "Vessel",
-    "Voyage",
-    "Origin",
-    "Destination",
-    "ETD",
-    "ETA",
-    "Status",
-    "Remarks",
-]
+            "vessel",
+            "voyage",
+            "origin",
+            "destination",
+            "etd",
+            "eta",
+            "status",
+            "remarks",
+        ]
 
         for column in required_columns:
-
             if column not in voyage_df.columns:
                 voyage_df[column] = ""
 
         voyage_df = voyage_df[
             required_columns
+        ].copy()
+
+        # --------------------------------------------------------
+        # CLEAN TEXT DATA
+        # --------------------------------------------------------
+
+        text_columns = [
+            "vessel",
+            "voyage",
+            "origin",
+            "destination",
+            "status",
+            "remarks",
         ]
 
-        voyage_df["Status"] = (
-    voyage_df["Status"]
-    .fillna("")
-    .astype(str)
-    .str.strip()
-)
+        for column in text_columns:
+            voyage_df[column] = (
+                voyage_df[column]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+            )
 
-voyage_df["Remarks"] = (
-    voyage_df["Remarks"]
-    .fillna("")
-    .astype(str)
-    .str.strip()
-)
+        # --------------------------------------------------------
+        # DELAY / EXCEPTION DETECTION
+        # --------------------------------------------------------
 
-status_text = (
-            voyage_df["Status"]
+        status_text = (
+            voyage_df["status"]
             .fillna("")
             .astype(str)
             .str.strip()
@@ -1824,7 +1852,7 @@ status_text = (
         )
 
         remarks_text = (
-            voyage_df["Remarks"]
+            voyage_df["remarks"]
             .fillna("")
             .astype(str)
             .str.strip()
@@ -1842,7 +1870,8 @@ status_text = (
         attention_mask = (
             delayed_mask
             | remarks_text.str.contains(
-                r"delay|delayed|risk|hold|cancel|weather|abnormal|exception",
+                r"delay|delayed|risk|hold|cancel|"
+                r"weather|abnormal|exception",
                 regex=True,
                 na=False,
             )
@@ -1856,9 +1885,17 @@ status_text = (
             attention_mask.sum()
         )
 
+        voyage_records = len(
+            voyage_df
+        )
+
+        # --------------------------------------------------------
+        # SAVE METRICS TO SESSION
+        # --------------------------------------------------------
+
         st.session_state[
             "voyage_records"
-        ] = len(voyage_df)
+        ] = voyage_records
 
         st.session_state[
             "delayed_exception"
@@ -1868,62 +1905,64 @@ status_text = (
             "attention_required"
         ] = attention_count
 
-        # Save permanent snapshot to Supabase.
-        try:
+        st.session_state[
+            "voyage_data"
+        ] = voyage_df.copy()
 
+        # --------------------------------------------------------
+        # SAVE PERMANENT SNAPSHOT TO SUPABASE
+        # --------------------------------------------------------
+
+        try:
             save_operational_snapshot(
                 "Voyage Operations",
                 voyage_df.to_dict(
                     orient="records"
                 ),
                 {
-                    "records": len(
-                        voyage_df
-                    ),
-                    "delayed": (
-                        delayed_count
-                    ),
-                    "attention": (
-                        attention_count
-                    ),
+                    "records": voyage_records,
+                    "delayed": delayed_count,
+                    "attention": attention_count,
                 },
             )
 
         except Exception as e:
-
-            st.error(
-                "Voyage database save error: "
-                f"{e}"
+            st.warning(
+                "Voyage data berhasil diproses, "
+                f"tetapi database belum dapat diperbarui: {e}"
             )
+
+        # ========================================================
+        # VOYAGE INTELLIGENCE KPI
+        # ========================================================
 
         st.markdown(
             "### 📊 Voyage Intelligence"
         )
 
-        col1, col2, col3 = st.columns(
-            3
-        )
+        col1, col2, col3 = st.columns(3)
 
         with col1:
-
             st.metric(
                 "Voyage Records",
-                len(voyage_df),
+                voyage_records,
             )
 
         with col2:
-
             st.metric(
                 "Delayed / Exception",
                 delayed_count,
             )
 
         with col3:
-
             st.metric(
                 "Attention Required",
                 attention_count,
             )
+
+        # ========================================================
+        # VOYAGE RECORDS
+        # ========================================================
 
         st.markdown(
             "### 📋 Voyage Records"
@@ -1935,33 +1974,63 @@ status_text = (
             hide_index=True,
         )
 
+        # ========================================================
+        # DELAYED / EXCEPTION
+        # ========================================================
+
+        st.markdown(
+            "### ⚠️ Delayed / Exception"
+        )
+
         if delayed_count > 0:
 
-            st.markdown(
-                "### ⚠️ Delayed / Exception"
-            )
+            delayed_df = voyage_df[
+                delayed_mask
+            ].copy()
 
             st.dataframe(
-                voyage_df[
-                    delayed_mask
-                ],
+                delayed_df,
                 use_container_width=True,
                 hide_index=True,
             )
+
+        else:
+
+            st.success(
+                "Tidak ada voyage dengan status "
+                "Delayed / Exception."
+            )
+
+        # ========================================================
+        # ATTENTION REQUIRED
+        # ========================================================
+
+        st.markdown(
+            "### 🚨 Attention Required"
+        )
 
         if attention_count > 0:
 
-            st.markdown(
-                "### 🚨 Attention Required"
-            )
+            attention_df = voyage_df[
+                attention_mask
+            ].copy()
 
             st.dataframe(
-                voyage_df[
-                    attention_mask
-                ],
+                attention_df,
                 use_container_width=True,
                 hide_index=True,
             )
+
+        else:
+
+            st.success(
+                "Tidak ada voyage yang memerlukan "
+                "perhatian khusus."
+            )
+
+        # ========================================================
+        # VOYAGE OPERATIONS ANALYSIS
+        # ========================================================
 
         st.markdown(
             "### 🧠 Voyage Operations Analysis"
@@ -1979,7 +2048,32 @@ status_text = (
                 )
             )
 
-            voyage_prompt = f""" USER REQUEST: Analyze supplied Voyage Operations data for marine fleet operations. VOYAGE DATA: {voyage_context} VOYAGE INTELLIGENCE RULES: 1. Analyze ONLY the supplied voyage data. 2. NEVER invent: - vessel status - voyage number - origin - destination - ETD - ETA - delay - weather condition - port condition - vessel condition - voyage progress 3. Identify delay or operational exception only when explicitly supported by the supplied data. 4. If required information is missing, state: DATA BELUM TERSEDIA. 5. Do not assume ETA, ETD or voyage progress. 6. Clearly separate the assessment into: FACTS DATA GAPS VOYAGE RISK OPERATIONAL EXCEPTIONS PRIORITY ACTIONS 7. Prioritize: - safety - operational continuity - voyage execution - compliance 8. Do not make assumptions beyond supplied data. 9. For every identified exception, use only evidence available in the supplied dataset. """
+            voyage_prompt = f"""
+Analyze the following Voyage Operations data.
+
+Use ONLY the supplied data.
+
+Do not invent vessel names, voyage numbers,
+ports, status, delay, risk or remarks.
+
+If information is unavailable, state:
+DATA BELUM TERSEDIA.
+
+Required output sections:
+
+FACTS
+
+DATA GAPS
+
+VOYAGE RISK
+
+OPERATIONAL EXCEPTIONS
+
+PRIORITY ACTIONS
+
+Voyage Records:
+{voyage_context}
+"""
 
             try:
 
@@ -2012,8 +2106,7 @@ status_text = (
 
                 if (
                     "429" in error_text
-                    or
-                    "RESOURCE_EXHAUSTED"
+                    or "RESOURCE_EXHAUSTED"
                     in error_text
                 ):
 
@@ -2025,8 +2118,7 @@ status_text = (
 
                 elif (
                     "503" in error_text
-                    or
-                    "UNAVAILABLE"
+                    or "UNAVAILABLE"
                     in error_text
                 ):
 
@@ -2042,6 +2134,13 @@ status_text = (
                         "Gagal melakukan analisis "
                         f"Voyage: {e}"
                     )
+
+    else:
+
+        st.info(
+            "DATA BELUM TERSEDIA — "
+            "belum ada Voyage Records untuk dianalisis."
+        )
 
 
 # ============================================================

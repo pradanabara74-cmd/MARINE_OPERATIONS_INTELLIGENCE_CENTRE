@@ -6163,123 +6163,118 @@ elif menu == "WhatsApp Operations":
             type="primary",
             key="create_action_from_whatsapp",
         ):
-
             try:
-
                 action_rows = load_actions()
 
-            # ==========================================================
-            # WHATSAPP DUPLICATE PROTECTION
-            # Satu WhatsApp message hanya boleh membuat satu Action
-            # ==========================================================
+                # =====================================================
+                # WHATSAPP DUPLICATE PROTECTION
+                # Satu WhatsApp message hanya boleh membuat satu Action
+                # =====================================================
 
-            wa_message_id = str(
-                selected_message.get(
-                    "message_id",
-                    "",
-                )
-            ).strip()
-
-            wa_message_text = str(
-                selected_message.get(
-                    "message",
-                    "",
-                )
-            ).strip()
-
-            wa_vessel = str(
-                selected_message.get(
-                    "vessel",
-                    "Unknown / Fleet",
-                )
-            ).strip()
-
-            existing_action = None
-
-            for existing_row in action_rows:
-
-                existing_source = str(
-                    existing_row.get(
-                        "Source",
-                        existing_row.get(
-                            "source",
-                            "",
-                        ),
-                    )
-                ).strip()
-
-                existing_description = str(
-                    existing_row.get(
-                        "Description",
-                        existing_row.get(
-                            "description",
-                            "",
-                        ),
-                    )
-                ).strip()
-
-                existing_vessel = str(
-                    existing_row.get(
-                        "Vessel",
-                        existing_row.get(
-                            "vessel",
-                            "",
-                        ),
-                    )
-                ).strip()
-
-                existing_remarks = str(
-                    existing_row.get(
-                        "Remarks",
-                        existing_row.get(
-                            "remarks",
-                            "",
-                        ),
-                    )
-                ).strip()
-
-                message_id_match = (
-                    bool(wa_message_id)
-                    and wa_message_id in existing_remarks
-                )
-
-                legacy_message_match = (
-                    existing_source.lower() == "whatsapp"
-                    and existing_description == wa_message_text
-                    and existing_vessel == wa_vessel
-                )
-
-                if message_id_match or legacy_message_match:
-                    existing_action = existing_row
-                    break
-
-            if existing_action is not None:
-
-                existing_action_id = str(
-                    existing_action.get(
-                        "Action ID",
-                        existing_action.get(
-                            "action_id",
-                            "Existing Action",
-                        ),
-                    )
-                )
-
-                st.warning(
-                    f"WhatsApp message ini sudah memiliki "
-                    f"Action Tracker: {existing_action_id}. "
-                    "Duplikasi tidak dibuat."
-                )
-
-            else:
-
-                wa_priority = str(
+                wa_message_id = str(
                     selected_message.get(
-                        "risk",
-                        "Medium",
+                        "message_id",
+                        "",
                     )
-                ).title()
-    
+                ).strip()
+
+                wa_message_text = str(
+                    selected_message.get(
+                        "message",
+                        "",
+                    )
+                ).strip()
+
+                wa_vessel = str(
+                    selected_message.get(
+                        "vessel",
+                        "Unknown / Fleet",
+                    )
+                ).strip()
+
+                existing_action = None
+
+                for existing_row in action_rows:
+                    existing_source = str(
+                        existing_row.get(
+                            "Source",
+                            existing_row.get(
+                                "source",
+                                "",
+                            ),
+                        )
+                    ).strip()
+
+                    existing_description = str(
+                        existing_row.get(
+                            "Description",
+                            existing_row.get(
+                                "description",
+                                "",
+                            ),
+                        )
+                    ).strip()
+
+                    existing_vessel = str(
+                        existing_row.get(
+                            "Vessel",
+                            existing_row.get(
+                                "vessel",
+                                "",
+                            ),
+                        )
+                    ).strip()
+
+                    existing_remarks = str(
+                        existing_row.get(
+                            "Remarks",
+                            existing_row.get(
+                                "remarks",
+                                "",
+                            ),
+                        )
+                    ).strip()
+
+                    message_id_match = (
+                        bool(wa_message_id)
+                        and wa_message_id in existing_remarks
+                    )
+
+                    legacy_message_match = (
+                        existing_source.lower() == "whatsapp"
+                        and existing_description == wa_message_text
+                        and existing_vessel == wa_vessel
+                    )
+
+                    if message_id_match or legacy_message_match:
+                        existing_action = existing_row
+                        break
+
+                if existing_action is not None:
+                    existing_action_id = str(
+                        existing_action.get(
+                            "Action ID",
+                            existing_action.get(
+                                "action_id",
+                                "Existing Action",
+                            ),
+                        )
+                    )
+
+                    st.warning(
+                        f"WhatsApp message ini sudah memiliki "
+                        f"Action Tracker: {existing_action_id}. "
+                        "Duplikasi tidak dibuat."
+                    )
+
+                else:
+                    wa_priority = str(
+                        selected_message.get(
+                            "risk",
+                            "Medium",
+                        )
+                    ).title()
+
                     if wa_priority not in [
                         "Critical",
                         "High",
@@ -6287,88 +6282,56 @@ elif menu == "WhatsApp Operations":
                         "Low",
                     ]:
                         wa_priority = "Medium"
-    
+
                     wa_action = {
-    
-                        "Action ID":
-                            next_action_id(
-                                action_rows
-                            ),
-    
-                        "Vessel":
-                            wa_vessel,
-    
-                        "Source":
-                            "WhatsApp",
-    
-                        "Description":
-                            wa_message_text,
-    
-                        "Priority":
-                            wa_priority,
-    
-                        "Responsible":
-                            "Marine Superintendent",
-    
-                        "Due Date":
-                            (
-                                datetime.now()
-                                .date()
-                                .isoformat()
-                            ),
-    
-                        "Status":
-                            "Open",
-    
-                        "Remarks":
-                            (
-                                "WhatsApp Message ID: "
-                                + wa_message_id
-                                + " | WhatsApp sender: "
-                                + str(
-                                    selected_message.get(
-                                        "sender",
-                                        "",
-                                    )
+                        "Action ID": next_action_id(
+                            action_rows
+                        ),
+                        "Vessel": wa_vessel,
+                        "Source": "WhatsApp",
+                        "Description": wa_message_text,
+                        "Priority": wa_priority,
+                        "Responsible": "Marine Superintendent",
+                        "Due Date": (
+                            datetime.now()
+                            .date()
+                            .isoformat()
+                        ),
+                        "Status": "Open",
+                        "Remarks": (
+                            "WhatsApp Message ID: "
+                            + wa_message_id
+                            + " | WhatsApp sender: "
+                            + str(
+                                selected_message.get(
+                                    "sender",
+                                    "",
                                 )
-                            ),
-    
-                        "Created":
-                            datetime.now()
-                            .isoformat(),
-    
-                        "Updated":
-                            datetime.now()
-                            .isoformat(),
-    
-                        "Completed":
-                            "",
-    
-                        "Created By":
-                            "admin",
-    
-                        "Role":
-                            st.session_state.get(
-                                "role",
-                                "Marine Superintendent",
-                            ),
+                            )
+                        ),
+                        "Created": datetime.now().isoformat(),
+                        "Updated": datetime.now().isoformat(),
+                        "Completed": "",
+                        "Created By": "admin",
+                        "Role": st.session_state.get(
+                            "role",
+                            "Marine Superintendent",
+                        ),
                     }
-    
+
                     create_action_persistent(
                         wa_action
                     )
-    
+
                     st.success(
                         f"{wa_action['Action ID']} "
                         "berhasil dibuat dari "
                         "WhatsApp message."
                     )
-    
+
                     st.rerun()
-            
 
             except Exception as e:
-
                 st.error(
                     "Gagal membuat Action dari "
                     f"WhatsApp: {e}"

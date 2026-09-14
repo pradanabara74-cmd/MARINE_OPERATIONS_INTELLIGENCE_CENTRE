@@ -1816,14 +1816,20 @@ voyage_df["Remarks"] = (
 )
 
 status_text = (
-    voyage_df["Status"]
-    .str.lower()
-)
+            voyage_df["Status"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .str.lower()
+        )
 
-remarks_text = (
-    voyage_df["Remarks"]
-    .str.lower()
-)
+        remarks_text = (
+            voyage_df["Remarks"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .str.lower()
+        )
 
         delayed_mask = (
             status_text.str.contains(
@@ -1835,8 +1841,7 @@ remarks_text = (
 
         attention_mask = (
             delayed_mask
-            |
-            remarks_text.str.contains(
+            | remarks_text.str.contains(
                 r"delay|delayed|risk|hold|cancel|weather|abnormal|exception",
                 regex=True,
                 na=False,

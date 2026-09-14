@@ -38,35 +38,7 @@ def ask_gemini_marine_copilot(prompt, role):
             "Silakan konfigurasi GEMINI_API_KEY di Streamlit Secrets."
         )
 
-    system_instruction = f"""
-You are the MARINE OPERATIONS CO-PILOT for a marine fleet operations company.
-
-Operational role: {role}
-Fleet size: 21 vessels.
-
-Your responsibilities include:
-- Fleet operations
-- Voyage operations
-- HSSE / DPA
-- PMS / Maintenance
-- Defects
-- Certificates
-- Crew
-- Bunker
-- Cargo
-- Audit & Findings
-- Action Tracker
-- Operational risk
-
-Rules:
-1. Be concise, professional and operational.
-2. Give evidence-based recommendations.
-3. NEVER invent vessel status, voyage, defect, certificate, PMS, HSSE,
-   crew, bunker, cargo, audit finding, action status or other operational data.
-4. If required data is unavailable, clearly state: DATA BELUM TERSEDIA.
-5. For safety-critical matters, recommend appropriate escalation.
-6. Prioritize safety, compliance and operational continuity.
-"""
+    system_instruction = f""" You are the MARINE OPERATIONS CO-PILOT for a marine fleet operations company. Operational role: {role} Fleet size: 21 vessels. Your responsibilities include: - Fleet operations - Voyage operations - HSSE / DPA - PMS / Maintenance - Defects - Certificates - Crew - Bunker - Cargo - Audit & Findings - Action Tracker - Operational risk Rules: 1. Be concise, professional and operational. 2. Give evidence-based recommendations. 3. NEVER invent vessel status, voyage, defect, certificate, PMS, HSSE, crew, bunker, cargo, audit finding, action status or other operational data. 4. If required data is unavailable, clearly state: DATA BELUM TERSEDIA. 5. For safety-critical matters, recommend appropriate escalation. 6. Prioritize safety, compliance and operational continuity. """
 
     last_error = None
 
@@ -142,10 +114,7 @@ def supabase_enabled():
 
 
 def supabase_request(method, table, params=None, payload=None):
-    """
-    REST client Supabase.
-    Tidak membutuhkan package supabase tambahan.
-    """
+    """ REST client Supabase. Tidak membutuhkan package supabase tambahan. """
 
     if not supabase_enabled():
         return []
@@ -367,10 +336,7 @@ def create_action_persistent(action):
     return [action]
 
 
-def update_action_persistent(
-    action_id,
-    action,
-):
+def update_action_persistent( action_id, action, ):
 
     if supabase_enabled():
 
@@ -410,9 +376,7 @@ def update_action_persistent(
     return [action]
 
 
-def delete_action_persistent(
-    action_id,
-):
+def delete_action_persistent( action_id, ):
 
     if supabase_enabled():
 
@@ -584,11 +548,7 @@ def action_kpis(actions):
 # OPERATIONAL SNAPSHOTS
 # ============================================================
 
-def save_operational_snapshot(
-    module,
-    records,
-    metrics,
-):
+def save_operational_snapshot( module, records, metrics, ):
 
     if not supabase_enabled():
         st.session_state[
@@ -669,9 +629,7 @@ def load_operational_snapshots():
 # WHATSAPP MESSAGE DATABASE
 # ============================================================
 
-def save_whatsapp_message(
-    message,
-):
+def save_whatsapp_message( message, ):
 
     if not supabase_enabled():
 
@@ -844,11 +802,7 @@ if not st.session_state.logged_in:
     st.subheader("Secure Operations Portal")
 
     st.markdown(
-        """
-        **Fleet Intelligence • HSSE • PMS • Voyage • Risk • AI Copilot**
-        
-        Silakan login untuk masuk ke Marine Operations Intelligence Centre.
-        """
+        """ **Fleet Intelligence • HSSE • PMS • Voyage • Risk • AI Copilot** Silakan login untuk masuk ke Marine Operations Intelligence Centre. """
     )
 
     with st.form("login_form"):
@@ -930,10 +884,7 @@ if supabase_enabled():
 with st.sidebar:
 
     st.markdown(
-        """
-        # ⚓ MARINE OPERATIONS
-        ## INTELLIGENCE CENTRE
-        """
+        """ # ⚓ MARINE OPERATIONS ## INTELLIGENCE CENTRE """
     )
 
     st.caption(
@@ -2023,62 +1974,7 @@ elif menu == "Voyage Operations":
                 )
             )
 
-            voyage_prompt = f"""
-USER REQUEST:
-Analyze supplied Voyage Operations data
-for marine fleet operations.
-
-VOYAGE DATA:
-{voyage_context}
-
-VOYAGE INTELLIGENCE RULES:
-
-1. Analyze ONLY the supplied voyage data.
-
-2. NEVER invent:
-- vessel status
-- voyage number
-- origin
-- destination
-- ETD
-- ETA
-- delay
-- weather condition
-- port condition
-- vessel condition
-- voyage progress
-
-3. Identify delay or operational exception
-only when explicitly supported by the supplied data.
-
-4. If required information is missing, state:
-DATA BELUM TERSEDIA.
-
-5. Do not assume ETA, ETD or voyage progress.
-
-6. Clearly separate the assessment into:
-
-FACTS
-
-DATA GAPS
-
-VOYAGE RISK
-
-OPERATIONAL EXCEPTIONS
-
-PRIORITY ACTIONS
-
-7. Prioritize:
-- safety
-- operational continuity
-- voyage execution
-- compliance
-
-8. Do not make assumptions beyond supplied data.
-
-9. For every identified exception, use only
-evidence available in the supplied dataset.
-"""
+            voyage_prompt = f""" USER REQUEST: Analyze supplied Voyage Operations data for marine fleet operations. VOYAGE DATA: {voyage_context} VOYAGE INTELLIGENCE RULES: 1. Analyze ONLY the supplied voyage data. 2. NEVER invent: - vessel status - voyage number - origin - destination - ETD - ETA - delay - weather condition - port condition - vessel condition - voyage progress 3. Identify delay or operational exception only when explicitly supported by the supplied data. 4. If required information is missing, state: DATA BELUM TERSEDIA. 5. Do not assume ETA, ETD or voyage progress. 6. Clearly separate the assessment into: FACTS DATA GAPS VOYAGE RISK OPERATIONAL EXCEPTIONS PRIORITY ACTIONS 7. Prioritize: - safety - operational continuity - voyage execution - compliance 8. Do not make assumptions beyond supplied data. 9. For every identified exception, use only evidence available in the supplied dataset. """
 
             try:
 
@@ -2225,20 +2121,7 @@ elif menu == "HSSE / DPA":
             )
 
             st.info(
-                """
-Format CSV yang disarankan:
-
-vessel,event_date,event_type,severity,status,remarks
-
-event_type:
-Incident / Near Miss / Finding / Safety Observation
-
-severity:
-Critical / High / Medium / Low
-
-status:
-Open / Closed / Under Investigation
-                """
+                """ Format CSV yang disarankan: vessel,event_date,event_type,severity,status,remarks event_type: Incident / Near Miss / Finding / Safety Observation severity: Critical / High / Medium / Low status: Open / Closed / Under Investigation """
             )
 
     else:
@@ -2429,38 +2312,7 @@ Open / Closed / Under Investigation
                 default=str,
             )
 
-            hsse_prompt = f"""
-USER REQUEST:
-Analyze the supplied HSSE / DPA data.
-
-HSSE / DPA DATA:
-{hsse_context}
-
-HSSE INTELLIGENCE RULES:
-
-- Analyze ONLY the supplied HSSE data.
-- NEVER invent incidents, near misses,
-  findings, dates, severity, vessel condition
-  or corrective actions.
-- If required information is missing, state:
-  DATA BELUM TERSEDIA.
-- Identify critical safety risks only when
-  the supplied data supports the assessment.
-- Identify open findings only from supplied status.
-- Prioritize safety and regulatory compliance.
-
-Clearly separate:
-
-FACTS
-
-DATA GAPS
-
-HSSE RISK
-
-PRIORITY ACTIONS
-
-ESCALATION REQUIRED
-"""
+            hsse_prompt = f""" USER REQUEST: Analyze the supplied HSSE / DPA data. HSSE / DPA DATA: {hsse_context} HSSE INTELLIGENCE RULES: - Analyze ONLY the supplied HSSE data. - NEVER invent incidents, near misses, findings, dates, severity, vessel condition or corrective actions. - If required information is missing, state: DATA BELUM TERSEDIA. - Identify critical safety risks only when the supplied data supports the assessment. - Identify open findings only from supplied status. - Prioritize safety and regulatory compliance. Clearly separate: FACTS DATA GAPS HSSE RISK PRIORITY ACTIONS ESCALATION REQUIRED """
 
             try:
 
@@ -2559,17 +2411,7 @@ elif menu == "PMS / Maintenance":
         )
 
         st.info(
-            """
-Format CSV:
-
-vessel,maintenance_task,due_date,status,priority,remarks
-
-Status:
-Planned / Due / Overdue / Completed
-
-Priority:
-Critical / High / Medium / Low
-            """
+            """ Format CSV: vessel,maintenance_task,due_date,status,priority,remarks Status: Planned / Due / Overdue / Completed Priority: Critical / High / Medium / Low """
         )
 
     else:
@@ -2823,30 +2665,7 @@ Critical / High / Medium / Low
                     default=str,
                 )
 
-                pms_prompt = f"""
-Analyze ONLY the supplied PMS / Maintenance data.
-
-PMS DATA:
-{pms_context}
-
-RULES:
-- NEVER invent maintenance records.
-- NEVER invent running hours.
-- NEVER invent equipment condition.
-- NEVER invent completion evidence.
-- If information is missing, state:
-  DATA BELUM TERSEDIA.
-
-Return ALL sections:
-
-FACTS
-
-DATA GAPS
-
-MAINTENANCE RISK
-
-PRIORITY ACTIONS
-"""
+                pms_prompt = f""" Analyze ONLY the supplied PMS / Maintenance data. PMS DATA: {pms_context} RULES: - NEVER invent maintenance records. - NEVER invent running hours. - NEVER invent equipment condition. - NEVER invent completion evidence. - If information is missing, state: DATA BELUM TERSEDIA. Return ALL sections: FACTS DATA GAPS MAINTENANCE RISK PRIORITY ACTIONS """
 
                 with st.spinner(
                     "Gemini sedang "
@@ -2947,17 +2766,7 @@ elif menu == "Defects":
         )
 
         st.info(
-            """
-Format CSV:
-
-vessel,defect,severity,reported,due_date,status,responsible
-
-Severity:
-Critical / High / Medium / Low
-
-Status:
-Open / In Progress / Closed
-            """
+            """ Format CSV: vessel,defect,severity,reported,due_date,status,responsible Severity: Critical / High / Medium / Low Status: Open / In Progress / Closed """
         )
 
     else:
@@ -3180,25 +2989,7 @@ Open / In Progress / Closed
             )
 
             st.markdown(
-                f"""
-**FACTS**
-
-- Total defect records: **{len(analysis_df)}**
-- Open / In Progress: **{open_count}**
-- Overdue active defects: **{overdue_count}**
-- Critical active defects: **{critical_count}**
-- High severity active defects: **{high_count}**
-
-**DATA GAPS**
-
-Informasi teknis yang tidak terdapat pada
-dataset tidak akan diasumsikan oleh sistem.
-
-**PRIORITY ACTIONS**
-
-Prioritaskan Critical dan Overdue Defects
-berdasarkan data yang tersedia.
-"""
+                f""" **FACTS** - Total defect records: **{len(analysis_df)}** - Open / In Progress: **{open_count}** - Overdue active defects: **{overdue_count}** - Critical active defects: **{critical_count}** - High severity active defects: **{high_count}** **DATA GAPS** Informasi teknis yang tidak terdapat pada dataset tidak akan diasumsikan oleh sistem. **PRIORITY ACTIONS** Prioritaskan Critical dan Overdue Defects berdasarkan data yang tersedia. """
             )
 
 
@@ -3286,17 +3077,7 @@ elif menu == "Certificates":
         )
 
         st.info(
-            """
-Format CSV:
-
-vessel,certificate,certificate_type,issue_date,expiry_date,status,remarks
-
-certificate_type:
-Statutory / Class / Flag / Operational
-
-status:
-Valid / Expired / Suspended
-            """
+            """ Format CSV: vessel,certificate,certificate_type,issue_date,expiry_date,status,remarks certificate_type: Statutory / Class / Flag / Operational status: Valid / Expired / Suspended """
         )
 
     else:
@@ -3491,35 +3272,7 @@ Valid / Expired / Suspended
                     )
                 )
 
-                certificate_prompt = f"""
-Analyze ONLY the supplied vessel
-certificate data.
-
-CERTIFICATE DATA:
-{certificate_context}
-
-RULES:
-- NEVER invent certificates.
-- NEVER invent expiry dates.
-- Identify expired certificates only
-  from supplied data.
-- Identify certificates expiring within
-  30 days only from supplied data.
-- If required information is missing:
-  DATA BELUM TERSEDIA.
-
-Return:
-
-FACTS
-
-EXPIRY RISK
-
-COMPLIANCE RISK
-
-DATA GAPS
-
-PRIORITY ACTIONS
-"""
+                certificate_prompt = f""" Analyze ONLY the supplied vessel certificate data. CERTIFICATE DATA: {certificate_context} RULES: - NEVER invent certificates. - NEVER invent expiry dates. - Identify expired certificates only from supplied data. - Identify certificates expiring within 30 days only from supplied data. - If required information is missing: DATA BELUM TERSEDIA. Return: FACTS EXPIRY RISK COMPLIANCE RISK DATA GAPS PRIORITY ACTIONS """
 
                 with st.spinner(
                     "Gemini sedang menganalisis "
@@ -3634,14 +3387,7 @@ elif menu == "Bunker":
         )
 
         st.info(
-            """
-Format CSV:
-
-vessel,date,fuel_type,quantity_mt,rob_mt,consumption_mt_day,remarks
-
-fuel_type:
-MGO / HFO / VLSFO
-            """
+            """ Format CSV: vessel,date,fuel_type,quantity_mt,rob_mt,consumption_mt_day,remarks fuel_type: MGO / HFO / VLSFO """
         )
 
     else:
@@ -3769,55 +3515,7 @@ MGO / HFO / VLSFO
                 default=str,
             )
 
-            bunker_prompt = f"""
-Analyze ONLY the supplied Bunker data.
-
-BUNKER DATA:
-{bunker_context}
-
-RULES:
-- NEVER invent fuel quantity.
-- NEVER invent ROB.
-- NEVER invent consumption.
-- NEVER invent bunker delivery.
-- NEVER invent bunker price.
-- NEVER invent fuel shortage.
-- Identify abnormal consumption ONLY when the supplied data supports it.
-- Use only evidence contained in BUNKER DATA.
-- If information is missing, write exactly:
-  DATA BELUM TERSEDIA.
-- Do not stop after FACTS.
-- You MUST return ALL five sections below.
-- Every section heading MUST appear in the final answer.
-- If a section has no supported issue, write:
-  Tidak ada temuan berdasarkan data yang tersedia.
-- Be concise and operational.
-
-Return EXACTLY in this structure:
-
-## FACTS
-Summarize the bunker facts supported by the dataset.
-
-## DATA GAPS
-List unavailable or incomplete bunker information.
-If none can be identified, write:
-DATA BELUM TERSEDIA.
-
-## BUNKER RISK
-Identify bunker operational risks supported by the supplied data.
-If no risk is supported, write:
-Tidak ada temuan berdasarkan data yang tersedia.
-
-## CONSUMPTION ALERTS
-List vessels with abnormal or high consumption ONLY when supported by the data.
-If none, write:
-Tidak ada temuan berdasarkan data yang tersedia.
-
-## PRIORITY ACTIONS
-Give practical follow-up actions based ONLY on the supplied data.
-If no action is required, write:
-Tidak ada tindakan prioritas berdasarkan data yang tersedia.
-"""
+            bunker_prompt = f""" Analyze ONLY the supplied Bunker data. BUNKER DATA: {bunker_context} RULES: - NEVER invent fuel quantity. - NEVER invent ROB. - NEVER invent consumption. - NEVER invent bunker delivery. - NEVER invent bunker price. - NEVER invent fuel shortage. - Identify abnormal consumption ONLY when the supplied data supports it. - Use only evidence contained in BUNKER DATA. - If information is missing, write exactly: DATA BELUM TERSEDIA. - Do not stop after FACTS. - You MUST return ALL five sections below. - Every section heading MUST appear in the final answer. - If a section has no supported issue, write: Tidak ada temuan berdasarkan data yang tersedia. - Be concise and operational. Return EXACTLY in this structure: ## FACTS Summarize the bunker facts supported by the dataset. ## DATA GAPS List unavailable or incomplete bunker information. If none can be identified, write: DATA BELUM TERSEDIA. ## BUNKER RISK Identify bunker operational risks supported by the supplied data. If no risk is supported, write: Tidak ada temuan berdasarkan data yang tersedia. ## CONSUMPTION ALERTS List vessels with abnormal or high consumption ONLY when supported by the data. If none, write: Tidak ada temuan berdasarkan data yang tersedia. ## PRIORITY ACTIONS Give practical follow-up actions based ONLY on the supplied data. If no action is required, write: Tidak ada tindakan prioritas berdasarkan data yang tersedia. """
 
             with st.spinner(
                 "Gemini sedang menganalisis "
@@ -3918,11 +3616,7 @@ elif menu == "Cargo":
         )
 
         st.info(
-            """
-Format CSV:
-
-vessel,cargo_date,cargo_type,quantity_mt,origin,destination,status,remarks
-            """
+            """ Format CSV: vessel,cargo_date,cargo_type,quantity_mt,origin,destination,status,remarks """
         )
 
     else:
@@ -4053,36 +3747,7 @@ vessel,cargo_date,cargo_type,quantity_mt,origin,destination,status,remarks
                 default=str,
             )
 
-            cargo_prompt = f"""
-Analyze ONLY the supplied Cargo data.
-
-CARGO DATA:
-{cargo_context}
-
-RULES:
-
-- NEVER invent cargo quantity.
-- NEVER invent cargo type.
-- NEVER invent cargo condition.
-- NEVER invent delay.
-- NEVER invent damage.
-- NEVER invent shortage.
-- NEVER invent ETA / ETD.
-- If required information is missing:
-  DATA BELUM TERSEDIA.
-
-Return:
-
-FACTS
-
-DATA GAPS
-
-CARGO RISK
-
-OPERATIONAL EXCEPTIONS
-
-PRIORITY ACTIONS
-"""
+            cargo_prompt = f""" Analyze ONLY the supplied Cargo data. CARGO DATA: {cargo_context} RULES: - NEVER invent cargo quantity. - NEVER invent cargo type. - NEVER invent cargo condition. - NEVER invent delay. - NEVER invent damage. - NEVER invent shortage. - NEVER invent ETA / ETD. - If required information is missing: DATA BELUM TERSEDIA. Return: FACTS DATA GAPS CARGO RISK OPERATIONAL EXCEPTIONS PRIORITY ACTIONS """
 
             with st.spinner(
                 "Gemini sedang "
@@ -4183,17 +3848,7 @@ elif menu == "Audit & Findings":
         )
 
         st.info(
-            """
-Format CSV:
-
-finding_id,vessel,audit_type,finding,severity,status,due_date,responsible,remarks
-
-Severity:
-Critical / High / Medium / Low
-
-Status:
-Open / In Progress / Closed
-            """
+            """ Format CSV: finding_id,vessel,audit_type,finding,severity,status,due_date,responsible,remarks Severity: Critical / High / Medium / Low Status: Open / In Progress / Closed """
         )
 
     else:
@@ -5368,15 +5023,7 @@ elif menu == "AI Marine Copilot":
     )
 
     st.info(
-        """
-AI Marine Copilot menggunakan data operasional
-yang benar-benar tersedia dari Marine Operations
-Intelligence Centre.
-
-AI tidak diperbolehkan mengarang status kapal,
-Voyage, HSSE, PMS, Defect, Certificate, Bunker,
-Cargo, Audit Finding atau Action Tracker.
-        """
+        """ AI Marine Copilot menggunakan data operasional yang benar-benar tersedia dari Marine Operations Intelligence Centre. AI tidak diperbolehkan mengarang status kapal, Voyage, HSSE, PMS, Defect, Certificate, Bunker, Cargo, Audit Finding atau Action Tracker. """
     )
 
     prompt = st.text_area(
@@ -5417,67 +5064,7 @@ Cargo, Audit Finding atau Action Tracker.
                     default=str,
                 )
 
-                fleet_prompt = f"""
-USER REQUEST:
-
-{prompt.strip()}
-
-
-FULL OPERATIONAL INTELLIGENCE DATA:
-
-{context_json}
-
-
-MARINE OPERATIONS INTELLIGENCE RULES:
-
-1. Analyze ONLY supplied operational data.
-
-2. NEVER invent:
-- vessel status
-- vessel position
-- voyage
-- defect
-- PMS condition
-- certificate condition
-- HSSE finding
-- crew condition
-- bunker data
-- cargo data
-- audit finding
-- action status
-- WhatsApp message
-- operational risk
-
-3. If required information is missing,
-state clearly:
-
-DATA BELUM TERSEDIA.
-
-4. Do not create risk ranking when there
-is not enough factual information.
-
-5. Separate response into:
-
-FLEET SUMMARY
-
-RISK ASSESSMENT
-
-TOP PRIORITIES
-
-DATA GAPS
-
-RECOMMENDED ACTIONS
-
-6. For safety-critical matters,
-recommend appropriate escalation.
-
-7. Prioritize:
-- Safety
-- Compliance
-- Operational continuity
-
-8. Never present assumptions as facts.
-"""
+                fleet_prompt = f""" USER REQUEST: {prompt.strip()} FULL OPERATIONAL INTELLIGENCE DATA: {context_json} MARINE OPERATIONS INTELLIGENCE RULES: 1. Analyze ONLY supplied operational data. 2. NEVER invent: - vessel status - vessel position - voyage - defect - PMS condition - certificate condition - HSSE finding - crew condition - bunker data - cargo data - audit finding - action status - WhatsApp message - operational risk 3. If required information is missing, state clearly: DATA BELUM TERSEDIA. 4. Do not create risk ranking when there is not enough factual information. 5. Separate response into: FLEET SUMMARY RISK ASSESSMENT TOP PRIORITIES DATA GAPS RECOMMENDED ACTIONS 6. For safety-critical matters, recommend appropriate escalation. 7. Prioritize: - Safety - Compliance - Operational continuity 8. Never present assumptions as facts. """
 
                 with st.spinner(
                     "Gemini sedang menganalisis "
@@ -5882,34 +5469,7 @@ elif menu == "Executive Reports":
                 default=str,
             )
 
-            sitrep_prompt = f"""
-Create a Daily Marine Operations SITREP
-based ONLY on supplied operational data.
-
-FULL OPERATIONAL INTELLIGENCE DATA:
-
-{sitrep_json}
-
-RULES:
-
-- Never invent operational facts.
-- If information is unavailable:
-  DATA BELUM TERSEDIA.
-- Prioritize safety, compliance and
-  operational continuity.
-
-Return:
-
-EXECUTIVE SUMMARY
-
-CRITICAL / HIGH RISKS
-
-ACTIONS REQUIRING DECISION
-
-DATA GAPS
-
-RECOMMENDED FOLLOW-UP
-"""
+            sitrep_prompt = f""" Create a Daily Marine Operations SITREP based ONLY on supplied operational data. FULL OPERATIONAL INTELLIGENCE DATA: {sitrep_json} RULES: - Never invent operational facts. - If information is unavailable: DATA BELUM TERSEDIA. - Prioritize safety, compliance and operational continuity. Return: EXECUTIVE SUMMARY CRITICAL / HIGH RISKS ACTIONS REQUIRING DECISION DATA GAPS RECOMMENDED FOLLOW-UP """
 
             with st.spinner(
                 "Generating AI Daily SITREP..."
@@ -6545,38 +6105,7 @@ elif menu == "System":
     )
 
     st.markdown(
-        """
-**Marine Operations Intelligence Centre**
-
-**Application Layer**  
-→ Streamlit
-
-**Persistent Data Layer**  
-→ Supabase PostgreSQL + REST API
-
-**Intelligence Layer**  
-→ AI Marine Operations Copilot
-
-**Operational Domains**  
-→ Fleet  
-→ Voyage  
-→ HSSE / DPA  
-→ PMS / Maintenance  
-→ Defects  
-→ Certificates  
-→ Bunker  
-→ Cargo  
-→ Audit & Findings  
-→ Action Tracker
-
-**Communication Layer**  
-→ WhatsApp Operations Intelligence
-
-**Executive Layer**  
-→ Dashboard Intelligence  
-→ Daily SITREP  
-→ Executive Reports
-        """
+        """ **Marine Operations Intelligence Centre** **Application Layer** → Streamlit **Persistent Data Layer** → Supabase PostgreSQL + REST API **Intelligence Layer** → AI Marine Operations Copilot **Operational Domains** → Fleet → Voyage → HSSE / DPA → PMS / Maintenance → Defects → Certificates → Bunker → Cargo → Audit & Findings → Action Tracker **Communication Layer** → WhatsApp Operations Intelligence **Executive Layer** → Dashboard Intelligence → Daily SITREP → Executive Reports """
     )
 
     st.divider()

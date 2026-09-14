@@ -3776,29 +3776,47 @@ BUNKER DATA:
 {bunker_context}
 
 RULES:
-
 - NEVER invent fuel quantity.
 - NEVER invent ROB.
 - NEVER invent consumption.
 - NEVER invent bunker delivery.
 - NEVER invent bunker price.
 - NEVER invent fuel shortage.
-- Identify abnormal consumption ONLY when
-  the data supports it.
-- If information is missing:
+- Identify abnormal consumption ONLY when the supplied data supports it.
+- Use only evidence contained in BUNKER DATA.
+- If information is missing, write exactly:
   DATA BELUM TERSEDIA.
+- Do not stop after FACTS.
+- You MUST return ALL five sections below.
+- Every section heading MUST appear in the final answer.
+- If a section has no supported issue, write:
+  Tidak ada temuan berdasarkan data yang tersedia.
+- Be concise and operational.
 
-Return:
+Return EXACTLY in this structure:
 
-FACTS
+## FACTS
+Summarize the bunker facts supported by the dataset.
 
-DATA GAPS
+## DATA GAPS
+List unavailable or incomplete bunker information.
+If none can be identified, write:
+DATA BELUM TERSEDIA.
 
-BUNKER RISK
+## BUNKER RISK
+Identify bunker operational risks supported by the supplied data.
+If no risk is supported, write:
+Tidak ada temuan berdasarkan data yang tersedia.
 
-CONSUMPTION ALERTS
+## CONSUMPTION ALERTS
+List vessels with abnormal or high consumption ONLY when supported by the data.
+If none, write:
+Tidak ada temuan berdasarkan data yang tersedia.
 
-PRIORITY ACTIONS
+## PRIORITY ACTIONS
+Give practical follow-up actions based ONLY on the supplied data.
+If no action is required, write:
+Tidak ada tindakan prioritas berdasarkan data yang tersedia.
 """
 
             with st.spinner(

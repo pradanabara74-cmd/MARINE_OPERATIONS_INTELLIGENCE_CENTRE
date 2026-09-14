@@ -6166,7 +6166,7 @@ elif menu == "WhatsApp Operations":
 
             try:
 
-            action_rows = load_actions()
+                action_rows = load_actions()
 
             # ==========================================================
             # WHATSAPP DUPLICATE PROTECTION

@@ -2311,31 +2311,60 @@ elif menu == "Crew 200":
 
     name_col = crew_find_column(
         crew_df,
-        ["Crew Name", "Name", "Crew", "Full Name"]
+        [
+            "Crew_Name",
+            "Crew Name",
+            "Name",
+            "Crew",
+            "Full_Name",
+            "Full Name",
+        ]
     )
 
     rank_col = crew_find_column(
         crew_df,
-        ["Rank", "Position", "Designation"]
+        [
+            "Rank",
+            "Position",
+            "Designation",
+            "Crew_Rank",
+            "Crew Rank",
+        ]
     )
 
     vessel_col = crew_find_column(
         crew_df,
-        ["Vessel", "Vessel Assignment", "Ship"]
+        [
+            "Vessel_Assignment",
+            "Vessel Assignment",
+            "Vessel",
+            "Ship",
+            "Assigned_Vessel",
+            "Assigned Vessel",
+        ]
     )
 
     status_col = crew_find_column(
         crew_df,
-        ["Status", "Crew Status"]
+        [
+            "Crew_Status",
+            "Crew Status",
+            "Status",
+            "Employment_Status",
+            "Employment Status",
+        ]
     )
 
     expiry_col = crew_find_column(
         crew_df,
         [
+            "Certificate_Expiry",
             "Certificate Expiry",
+            "Certificate_Expiry_Date",
             "Certificate Expiry Date",
+            "Expiry_Date",
             "Expiry Date",
-            "Expiry"
+            "Expiry",
         ]
     )
 

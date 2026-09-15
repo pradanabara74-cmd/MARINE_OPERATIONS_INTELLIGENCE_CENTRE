@@ -2208,34 +2208,738 @@ elif menu == "Fleet 21":
 
 
 # ============================================================
-# CREW 200
+# CREW 200 V2 — CREW OPERATIONAL INTELLIGENCE
 # ============================================================
 
 elif menu == "Crew 200":
 
-    st.header("👨‍✈️ Crew Intelligence")
+    st.header("👨‍✈️ Crew 200")
+
+    st.caption(
+        "Crew operational intelligence untuk monitoring manpower, "
+        "rank, vessel assignment, certificate dan readiness."
+    )
+
+    # ========================================================
+    # LOAD CREW DATA FROM SUPABASE SNAPSHOT
+    # ========================================================
+
+    try:
+        crew_snapshots = load_operational_snapshots()
+
+        if not isinstance(crew_snapshots, dict):
+            crew_snapshots = {}
+
+    except Exception:
+        crew_snapshots = {}
+
+
+    # ========================================================
+    # SAFE RECORD LOADER
+    # ========================================================
+
+    def load_crew_records():
+
+        possible_keys = [
+            "Crew 200",
+            "Crew",
+            "Crew Management"
+        ]
+
+        for key in possible_keys:
+
+            saved_crew = crew_snapshots.get(key, {})
+
+            if not isinstance(saved_crew, dict):
+                continue
+
+            records = saved_crew.get("records", [])
+
+            if isinstance(records, list) and records:
+
+                try:
+                    df = pd.DataFrame(records)
+
+                    df.columns = [
+                        str(c).replace("\ufeff", "").strip()
+                        for c in df.columns
+                    ]
+
+                    return df
+
+                except Exception:
+                    pass
+
+        return pd.DataFrame()
+
+
+    crew_df = load_crew_records()
+
+
+    # ========================================================
+    # FALLBACK TO SESSION STATE
+    # ========================================================
+
+    if crew_df.empty:
+
+        if "crew_data" in st.session_state:
+
+            try:
+
+                session_crew = st.session_state["crew_data"]
+
+                if isinstance(session_crew, pd.DataFrame):
+                    crew_df = session_crew.copy()
+
+                elif isinstance(session_crew, list):
+                    crew_df = pd.DataFrame(session_crew)
+
+            except Exception:
+                pass
+
+
+    # ========================================================
+    # COLUMN FINDER
+    # ========================================================
+
+    def crew_column(possible_names):
+
+        if crew_df.empty:
+            return None
+
+        column_map = {
+            str(c).strip().lower(): c
+            for c in crew_df.columns
+        }
+
+        for name in possible_names:
+
+            key = str(name).strip().lower()
+
+            if key in column_map:
+                return column_map[key]
+
+        return None
+
+
+    # ========================================================
+    # COLUMN DETECTION
+    # ========================================================
+
+    name_col = crew_column([
+        "name",
+        "crew_name",
+        "crew name",
+        "full_name",
+        "full name",
+        "nama"
+    ])
+
+    vessel_col = crew_column([
+        "vessel",
+        "vessel_name",
+        "vessel name",
+        "ship",
+        "kapal"
+    ])
+
+    rank_col = crew_column([
+        "rank",
+        "position",
+        "jabatan"
+    ])
+
+    status_col = crew_column([
+        "status",
+        "crew_status",
+        "crew status"
+    ])
+
+    expiry_col = crew_column([
+        "expiry_date",
+        "expiry date",
+        "certificate_expiry",
+        "certificate expiry",
+        "cert_expiry",
+        "cert expiry"
+    ])
+
+
+    # ========================================================
+    # SUMMARY
+    # ========================================================
+
+    total_crew = len(crew_df)
+
+    officers = 0
+    ratings = 0
+    expiring = 0
+
+
+    # --------------------------------------------------------
+    # OFFICER / RATING CLASSIFICATION
+    # --------------------------------------------------------
+
+    if rank_col is not None:
+
+        officer_keywords = [
+            "master",
+            "chief officer",
+            "chief mate",
+            "second officer",
+            "2nd officer",
+            "third officer",
+            "3rd officer",
+            "chief engineer",
+            "second engineer",
+            "2nd engineer",
+            "third engineer",
+            "3rd engineer",
+            "fourth engineer",
+            "4th engineer",
+            "eto"
+        ]
+
+        rank_text = (
+            crew_df[rank_col]
+            .astype(str)
+            .str.lower()
+        )
+
+        officer_mask = pd.Series(
+            False,
+            index=crew_df.index
+        )
+
+        for keyword in officer_keywords:
+
+            officer_mask = (
+                officer_mask |
+                rank_text.str.contains(
+                    keyword,
+                    regex=False,
+                    na=False
+                )
+            )
+
+        officers = int(officer_mask.sum())
+        ratings = int(total_crew - officers)
+
+
+    # --------------------------------------------------------
+    # CERTIFICATE EXPIRY
+    # --------------------------------------------------------
+
+    if expiry_col is not None:
+
+        try:
+
+            expiry_dates = pd.to_datetime(
+                crew_df[expiry_col],
+                errors="coerce"
+            )
+
+            today = pd.Timestamp.now().normalize()
+
+            expiry_limit = today + pd.Timedelta(days=90)
+
+            expiring = int(
+                (
+                    expiry_dates.notna()
+                    & (expiry_dates <= expiry_limit)
+                ).sum()
+            )
+
+        except Exception:
+            expiring = 0
+
+
+    # ========================================================
+    # COMMAND STATUS
+    # ========================================================
+
+    st.markdown("### 📊 Crew Command Status")
 
     c1, c2, c3, c4 = st.columns(4)
 
     with c1:
-        st.metric("Total Crew", "200")
 
-    with c2:
-        st.metric("Officers", "Data Gap")
-
-    with c3:
-        st.metric("Ratings", "Data Gap")
-
-    with c4:
         st.metric(
-            "Expiring Certificates",
-            "Data Gap"
+            "Crew Records",
+            total_crew
         )
 
-    st.info(
-        "Modul Crew Intelligence akan dikembangkan dengan "
-        "matrix competence, certificate validity, rank, "
-        "vessel assignment dan fatigue monitoring."
+    with c2:
+
+        st.metric(
+            "Officers",
+            officers if rank_col is not None else "Data Gap"
+        )
+
+    with c3:
+
+        st.metric(
+            "Ratings",
+            ratings if rank_col is not None else "Data Gap"
+        )
+
+    with c4:
+
+        st.metric(
+            "Certificate Attention",
+            expiring if expiry_col is not None else "Data Gap"
+        )
+
+
+    # ========================================================
+    # NO CREW DATA
+    # ========================================================
+
+    if crew_df.empty:
+
+        st.warning(
+            "CREW DATA GAP — belum terdapat Crew Records "
+            "pada database Supabase."
+        )
+
+        st.info(
+            "Upload Crew CSV diperlukan agar Crew 200 dapat "
+            "melakukan manpower, vessel assignment dan "
+            "certificate readiness assessment."
+        )
+
+
+    # ========================================================
+    # CREW DATA AVAILABLE
+    # ========================================================
+
+    else:
+
+        st.success(
+            f"{total_crew} Crew Record(s) berhasil dimuat."
+        )
+
+        st.markdown("### 📋 Crew Records")
+
+        st.dataframe(
+            crew_df,
+            use_container_width=True,
+            hide_index=True
+        )
+
+
+        # ====================================================
+        # VESSEL ASSIGNMENT
+        # ====================================================
+
+        st.markdown("### 🚢 Vessel Assignment")
+
+        if vessel_col is not None:
+
+            try:
+
+                vessel_summary = (
+                    crew_df[vessel_col]
+                    .astype(str)
+                    .str.strip()
+                    .value_counts()
+                    .reset_index()
+                )
+
+                vessel_summary.columns = [
+                    "Vessel",
+                    "Crew"
+                ]
+
+                vessel_summary = vessel_summary[
+                    ~vessel_summary["Vessel"]
+                    .str.lower()
+                    .isin(["", "nan", "none"])
+                ]
+
+                if vessel_summary.empty:
+
+                    st.info(
+                        "Vessel assignment belum tersedia."
+                    )
+
+                else:
+
+                    st.dataframe(
+                        vessel_summary,
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+            except Exception:
+
+                st.info(
+                    "Vessel assignment belum dapat dianalisis."
+                )
+
+        else:
+
+            st.info(
+                "Kolom Vessel belum tersedia pada Crew data."
+            )
+
+
+        # ====================================================
+        # RANK DISTRIBUTION
+        # ====================================================
+
+        st.markdown("### 👨‍✈️ Rank Distribution")
+
+        if rank_col is not None:
+
+            try:
+
+                rank_summary = (
+                    crew_df[rank_col]
+                    .astype(str)
+                    .str.strip()
+                    .value_counts()
+                    .reset_index()
+                )
+
+                rank_summary.columns = [
+                    "Rank",
+                    "Crew"
+                ]
+
+                st.dataframe(
+                    rank_summary,
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+            except Exception:
+
+                st.info(
+                    "Rank distribution belum dapat dianalisis."
+                )
+
+        else:
+
+            st.info(
+                "Kolom Rank belum tersedia."
+            )
+
+
+        # ====================================================
+        # CERTIFICATE ATTENTION
+        # ====================================================
+
+        st.markdown("### ⚠️ Crew Attention Required")
+
+        attention_frames = []
+
+
+        # Certificate expiry
+        if expiry_col is not None:
+
+            try:
+
+                expiry_dates = pd.to_datetime(
+                    crew_df[expiry_col],
+                    errors="coerce"
+                )
+
+                today = pd.Timestamp.now().normalize()
+
+                limit = today + pd.Timedelta(days=90)
+
+                expiry_mask = (
+                    expiry_dates.notna()
+                    & (expiry_dates <= limit)
+                )
+
+                expiry_attention = crew_df.loc[
+                    expiry_mask
+                ].copy()
+
+                if not expiry_attention.empty:
+
+                    expiry_attention[
+                        "Attention Reason"
+                    ] = "Certificate Expiry"
+
+                    attention_frames.append(
+                        expiry_attention
+                    )
+
+            except Exception:
+                pass
+
+
+        # Crew status
+        if status_col is not None:
+
+            try:
+
+                status_text = (
+                    crew_df[status_col]
+                    .astype(str)
+                    .str.lower()
+                )
+
+                status_mask = status_text.str.contains(
+                    "expired|medical|leave|inactive|"
+                    "unfit|pending|attention",
+                    regex=True,
+                    na=False
+                )
+
+                status_attention = crew_df.loc[
+                    status_mask
+                ].copy()
+
+                if not status_attention.empty:
+
+                    status_attention[
+                        "Attention Reason"
+                    ] = "Crew Status"
+
+                    attention_frames.append(
+                        status_attention
+                    )
+
+            except Exception:
+                pass
+
+
+        if attention_frames:
+
+            crew_attention_df = pd.concat(
+                attention_frames,
+                ignore_index=True
+            )
+
+            if name_col is not None:
+
+                try:
+                    crew_attention_df = (
+                        crew_attention_df
+                        .drop_duplicates(
+                            subset=[name_col],
+                            keep="first"
+                        )
+                    )
+                except Exception:
+                    pass
+
+            else:
+
+                crew_attention_df = (
+                    crew_attention_df
+                    .drop_duplicates()
+                )
+
+            st.warning(
+                f"{len(crew_attention_df)} crew record(s) "
+                "memerlukan perhatian."
+            )
+
+            st.dataframe(
+                crew_attention_df,
+                use_container_width=True,
+                hide_index=True
+            )
+
+        else:
+
+            if expiry_col is None and status_col is None:
+
+                st.info(
+                    "Belum tersedia kolom Status/Certificate "
+                    "Expiry untuk menentukan Crew Attention."
+                )
+
+            else:
+
+                st.success(
+                    "Tidak ditemukan crew attention berdasarkan "
+                    "data yang tersedia."
+                )
+
+
+        # ====================================================
+        # SELECT CREW MEMBER
+        # ====================================================
+
+        if name_col is not None:
+
+            crew_names = (
+                crew_df[name_col]
+                .astype(str)
+                .str.strip()
+            )
+
+            crew_names = crew_names[
+                ~crew_names.str.lower().isin(
+                    ["", "nan", "none"]
+                )
+            ].unique().tolist()
+
+
+            if crew_names:
+
+                st.markdown(
+                    "### 🧠 Individual Crew Intelligence"
+                )
+
+                selected_crew = st.selectbox(
+                    "Pilih crew",
+                    crew_names,
+                    key="crew200_selected_crew"
+                )
+
+                selected_crew_df = crew_df[
+                    crew_df[name_col]
+                    .astype(str)
+                    .str.strip()
+                    == selected_crew
+                ]
+
+
+                if not selected_crew_df.empty:
+
+                    crew_record = (
+                        selected_crew_df.iloc[0]
+                    )
+
+                    c1, c2, c3 = st.columns(3)
+
+                    with c1:
+
+                        st.metric(
+                            "Crew",
+                            selected_crew
+                        )
+
+                    with c2:
+
+                        st.metric(
+                            "Rank",
+                            (
+                                crew_record[rank_col]
+                                if rank_col is not None
+                                else "N/A"
+                            )
+                        )
+
+                    with c3:
+
+                        st.metric(
+                            "Vessel",
+                            (
+                                crew_record[vessel_col]
+                                if vessel_col is not None
+                                else "N/A"
+                            )
+                        )
+
+                    with st.expander(
+                        "📑 Crew Record Detail"
+                    ):
+
+                        st.dataframe(
+                            selected_crew_df,
+                            use_container_width=True,
+                            hide_index=True
+                        )
+
+
+    # ========================================================
+    # CREW OPERATIONAL ASSESSMENT
+    # ========================================================
+
+    st.markdown("### 🎯 Crew Operational Assessment")
+
+    if crew_df.empty:
+
+        st.info(
+            "Crew readiness belum dapat dinilai karena "
+            "Crew Records belum tersedia."
+        )
+
+    elif expiry_col is not None and expiring > 0:
+
+        st.warning(
+            f"{expiring} crew certificate record(s) "
+            "memerlukan perhatian dalam periode 90 hari."
+        )
+
+    else:
+
+        st.success(
+            "Crew operational data tersedia. "
+            "Tidak ditemukan critical certificate warning "
+            "berdasarkan data yang tersedia."
+        )
+
+
+    # ========================================================
+    # DATA COVERAGE
+    # ========================================================
+
+    st.markdown("### 🔎 Crew Intelligence Data Coverage")
+
+    coverage_data = [
+        {
+            "Domain": "Crew Records",
+            "Status":
+                "AVAILABLE"
+                if not crew_df.empty
+                else "DATA GAP"
+        },
+        {
+            "Domain": "Crew Name",
+            "Status":
+                "AVAILABLE"
+                if name_col is not None
+                else "DATA GAP"
+        },
+        {
+            "Domain": "Rank",
+            "Status":
+                "AVAILABLE"
+                if rank_col is not None
+                else "DATA GAP"
+        },
+        {
+            "Domain": "Vessel Assignment",
+            "Status":
+                "AVAILABLE"
+                if vessel_col is not None
+                else "DATA GAP"
+        },
+        {
+            "Domain": "Crew Status",
+            "Status":
+                "AVAILABLE"
+                if status_col is not None
+                else "DATA GAP"
+        },
+        {
+            "Domain": "Certificate Expiry",
+            "Status":
+                "AVAILABLE"
+                if expiry_col is not None
+                else "DATA GAP"
+        }
+    ]
+
+    st.dataframe(
+        pd.DataFrame(coverage_data),
+        use_container_width=True,
+        hide_index=True
+    )
+
+
+    st.caption(
+        "Crew 200 Intelligence • Manpower • Rank • "
+        "Vessel Assignment • Certification • Readiness"
     )
 
 

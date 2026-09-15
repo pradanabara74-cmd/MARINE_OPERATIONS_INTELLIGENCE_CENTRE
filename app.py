@@ -1455,77 +1455,503 @@ if menu == "Dashboard":
         "Fleet • HSSE • PMS • Voyage • Risk • AI Copilot"
     )
     # ============================================================
-# FLEET 21
+# FLEET 21 V2 — OPERATIONAL INTELLIGENCE
 # ============================================================
 
 elif menu == "Fleet 21":
 
     st.header("🚢 Fleet 21")
 
-    st.write(
-        "Daftar armada yang menjadi basis Intelligence Centre."
+    st.caption(
+        "Fleet operational intelligence berdasarkan data aktual "
+        "Voyage, Defects, Certificates dan PMS / Maintenance."
     )
 
+    # ========================================================
+    # LOAD OPERATIONAL SNAPSHOTS
+    # ========================================================
+
+    try:
+        fleet_snapshots = load_operational_snapshots()
+
+        if not isinstance(fleet_snapshots, dict):
+            fleet_snapshots = {}
+
+    except Exception:
+        fleet_snapshots = {}
+
+    # ========================================================
+    # SAFE SNAPSHOT RECORD LOADER
+    # ========================================================
+
+    def fleet_records(snapshot_name):
+
+        snapshot = fleet_snapshots.get(snapshot_name, {})
+
+        if not isinstance(snapshot, dict):
+            return pd.DataFrame()
+
+        records = snapshot.get("records", [])
+
+        if not isinstance(records, list) or not records:
+            return pd.DataFrame()
+
+        try:
+            df = pd.DataFrame(records)
+
+            df.columns = [
+                str(c).replace("\ufeff", "").strip()
+                for c in df.columns
+            ]
+
+            return df
+
+        except Exception:
+            return pd.DataFrame()
+
+
+    voyage_fleet_df = fleet_records("Voyage Operations")
+    defect_fleet_df = fleet_records("Defects")
+    certificate_fleet_df = fleet_records("Certificates")
+    pms_fleet_df = fleet_records("PMS / Maintenance")
+
+
+    # ========================================================
+    # FIND COLUMN SAFELY
+    # ========================================================
+
+    def find_fleet_column(df, possible_names):
+
+        if df.empty:
+            return None
+
+        column_map = {
+            str(c).strip().lower(): c
+            for c in df.columns
+        }
+
+        for name in possible_names:
+
+            key = str(name).strip().lower()
+
+            if key in column_map:
+                return column_map[key]
+
+        return None
+
+
+    # ========================================================
+    # FILTER DATA BY VESSEL
+    # ========================================================
+
+    def vessel_data(df, vessel_name):
+
+        if df.empty:
+            return pd.DataFrame()
+
+        vessel_col = find_fleet_column(
+            df,
+            [
+                "vessel",
+                "vessel_name",
+                "vessel name",
+                "ship",
+                "ship_name",
+                "kapal"
+            ]
+        )
+
+        if vessel_col is None:
+            return pd.DataFrame()
+
+        try:
+
+            mask = (
+                df[vessel_col]
+                .astype(str)
+                .str.strip()
+                .str.upper()
+                == str(vessel_name).strip().upper()
+            )
+
+            return df.loc[mask].copy()
+
+        except Exception:
+            return pd.DataFrame()
+
+
+    # ========================================================
+    # STATUS HELPERS
+    # ========================================================
+
+    def latest_voyage_status(df):
+
+        if df.empty:
+            return "N/A"
+
+        status_col = find_fleet_column(
+            df,
+            ["status", "voyage_status", "voyage status"]
+        )
+
+        if status_col is None:
+            return "Available"
+
+        values = (
+            df[status_col]
+            .astype(str)
+            .str.strip()
+        )
+
+        values = values[
+            ~values.str.lower().isin(
+                ["", "nan", "none", "n/a"]
+            )
+        ]
+
+        if values.empty:
+            return "Available"
+
+        return values.iloc[-1]
+
+
+    def defect_status(df):
+
+        if df.empty:
+            return "N/A"
+
+        status_col = find_fleet_column(
+            df,
+            ["status", "defect_status", "defect status"]
+        )
+
+        if status_col is None:
+            return f"{len(df)} record(s)"
+
+        status_text = (
+            df[status_col]
+            .astype(str)
+            .str.lower()
+        )
+
+        open_mask = status_text.str.contains(
+            "open|pending|outstanding|critical",
+            regex=True,
+            na=False
+        )
+
+        open_count = int(open_mask.sum())
+
+        if open_count > 0:
+            return f"{open_count} Open"
+
+        return "No Open Defect"
+
+
+    def certificate_status(df):
+
+        if df.empty:
+            return "N/A"
+
+        status_col = find_fleet_column(
+            df,
+            ["status", "certificate_status", "certificate status"]
+        )
+
+        if status_col is not None:
+
+            text = (
+                df[status_col]
+                .astype(str)
+                .str.lower()
+            )
+
+            attention = text.str.contains(
+                "expired|expiring|overdue|critical",
+                regex=True,
+                na=False
+            )
+
+            if attention.any():
+                return "Attention"
+
+        return f"{len(df)} record(s)"
+
+
+    def pms_status(df):
+
+        if df.empty:
+            return "N/A"
+
+        status_col = find_fleet_column(
+            df,
+            [
+                "status",
+                "maintenance_status",
+                "maintenance status",
+                "pms_status",
+                "pms status"
+            ]
+        )
+
+        if status_col is not None:
+
+            text = (
+                df[status_col]
+                .astype(str)
+                .str.lower()
+            )
+
+            attention = text.str.contains(
+                "overdue|critical|pending|late",
+                regex=True,
+                na=False
+            )
+
+            if attention.any():
+                return "Attention"
+
+        return f"{len(df)} record(s)"
+
+
+    # ========================================================
+    # BUILD FLEET INTELLIGENCE
+    # ========================================================
+
+    fleet_rows = []
+
+    for vessel in FLEET:
+
+        v_voyage = vessel_data(
+            voyage_fleet_df,
+            vessel
+        )
+
+        v_defect = vessel_data(
+            defect_fleet_df,
+            vessel
+        )
+
+        v_certificate = vessel_data(
+            certificate_fleet_df,
+            vessel
+        )
+
+        v_pms = vessel_data(
+            pms_fleet_df,
+            vessel
+        )
+
+        voyage_status = latest_voyage_status(v_voyage)
+        defect_info = defect_status(v_defect)
+        certificate_info = certificate_status(v_certificate)
+        pms_info = pms_status(v_pms)
+
+        # ----------------------------------------------------
+        # LOCATION
+        # ----------------------------------------------------
+
+        location = "Data belum tersedia"
+
+        if not v_voyage.empty:
+
+            destination_col = find_fleet_column(
+                v_voyage,
+                [
+                    "destination",
+                    "current_location",
+                    "current location",
+                    "location"
+                ]
+            )
+
+            if destination_col is not None:
+
+                location_values = (
+                    v_voyage[destination_col]
+                    .astype(str)
+                    .str.strip()
+                )
+
+                location_values = location_values[
+                    ~location_values.str.lower().isin(
+                        ["", "nan", "none"]
+                    )
+                ]
+
+                if not location_values.empty:
+                    location = location_values.iloc[-1]
+
+
+        # ----------------------------------------------------
+        # RISK ASSESSMENT
+        # ----------------------------------------------------
+
+        risk_score = 0
+        risk_reasons = []
+
+        voyage_lower = str(voyage_status).lower()
+        defect_lower = str(defect_info).lower()
+        cert_lower = str(certificate_info).lower()
+        pms_lower = str(pms_info).lower()
+
+        if (
+            "delay" in voyage_lower
+            or "exception" in voyage_lower
+        ):
+            risk_score += 2
+            risk_reasons.append("Voyage")
+
+        if (
+            "open" in defect_lower
+            or "critical" in defect_lower
+        ):
+            risk_score += 2
+            risk_reasons.append("Defect")
+
+        if "attention" in cert_lower:
+            risk_score += 2
+            risk_reasons.append("Certificate")
+
+        if "attention" in pms_lower:
+            risk_score += 2
+            risk_reasons.append("PMS")
+
+
+        available_domains = sum(
+            [
+                not v_voyage.empty,
+                not v_defect.empty,
+                not v_certificate.empty,
+                not v_pms.empty
+            ]
+        )
+
+
+        if available_domains == 0:
+
+            risk = "Belum dinilai"
+
+        elif risk_score >= 4:
+
+            risk = "🔴 HIGH"
+
+        elif risk_score >= 2:
+
+            risk = "🟠 MEDIUM"
+
+        else:
+
+            risk = "🟢 LOW"
+
+
+        fleet_rows.append(
+            {
+                "Vessel": vessel,
+                "Status": "Active",
+                "Location": location,
+                "Voyage": voyage_status,
+                "Defect": defect_info,
+                "Certificate": certificate_info,
+                "PMS": pms_info,
+                "Risk": risk
+            }
+        )
+
+
+    fleet_intelligence_df = pd.DataFrame(fleet_rows)
+
+
+    # ========================================================
+    # FLEET SUMMARY
+    # ========================================================
+
+    total_vessels = len(fleet_intelligence_df)
+
+    high_risk = int(
+        fleet_intelligence_df["Risk"]
+        .astype(str)
+        .str.contains("HIGH", na=False)
+        .sum()
+    )
+
+    medium_risk = int(
+        fleet_intelligence_df["Risk"]
+        .astype(str)
+        .str.contains("MEDIUM", na=False)
+        .sum()
+    )
+
+    data_gap = int(
+        fleet_intelligence_df["Risk"]
+        .astype(str)
+        .str.contains("Belum dinilai", na=False)
+        .sum()
+    )
+
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    with c1:
+        st.metric(
+            "Fleet",
+            total_vessels
+        )
+
+    with c2:
+        st.metric(
+            "High Risk",
+            high_risk
+        )
+
+    with c3:
+        st.metric(
+            "Medium Risk",
+            medium_risk
+        )
+
+    with c4:
+        st.metric(
+            "Data Gap",
+            data_gap
+        )
+
+
+    # ========================================================
+    # FLEET TABLE
+    # ========================================================
+
+    st.subheader("📋 Fleet Operational Status")
+
     st.dataframe(
-        VESSELS_DF,
+        fleet_intelligence_df,
         use_container_width=True,
         hide_index=True
     )
 
+
+    # ========================================================
+    # SELECT VESSEL
+    # ========================================================
+
     selected_vessel = st.selectbox(
         "Pilih kapal",
         FLEET,
-        key="fleet21_vessel",
+        key="fleet21_v2_vessel"
     )
 
-    vessel_rows = VESSELS_DF[
-        VESSELS_DF["Vessel"] == selected_vessel
+    selected_rows = fleet_intelligence_df[
+        fleet_intelligence_df["Vessel"]
+        == selected_vessel
     ]
 
-    if vessel_rows.empty:
 
-        st.warning(
-            "Data kapal belum tersedia."
-        )
+    if not selected_rows.empty:
 
-    else:
-
-        vessel = vessel_rows.iloc[0]
-
-        def fleet_value(column_name):
-
-            if column_name not in VESSELS_DF.columns:
-                return "N/A"
-
-            value = vessel[column_name]
-
-            if pd.isna(value):
-                return "N/A"
-
-            value = str(value).strip()
-
-            if value == "":
-                return "N/A"
-
-            if value.lower() in [
-                "data belum tersedia",
-                "tidak ada data",
-                "belum dinilai",
-                "n/a",
-                "na",
-            ]:
-                return "N/A"
-
-            return value
-
-        vessel_status = fleet_value("Status")
-        vessel_voyage = fleet_value("Voyage")
-        vessel_defect = fleet_value("Defect")
-        vessel_pms = fleet_value("PMS")
-        vessel_risk = fleet_value("Risk")
+        vessel_info = selected_rows.iloc[0]
 
         st.subheader(
-            f"Vessel Intelligence — {selected_vessel}"
+            f"🧠 Vessel Intelligence — {selected_vessel}"
         )
 
         c1, c2, c3, c4, c5 = st.columns(5)
@@ -1533,137 +1959,252 @@ elif menu == "Fleet 21":
         with c1:
             st.metric(
                 "Status",
-                vessel_status,
+                vessel_info["Status"]
             )
 
         with c2:
             st.metric(
                 "Voyage",
-                vessel_voyage,
+                vessel_info["Voyage"]
             )
 
         with c3:
             st.metric(
                 "Defect",
-                vessel_defect,
+                vessel_info["Defect"]
             )
 
         with c4:
             st.metric(
                 "PMS",
-                vessel_pms,
+                vessel_info["PMS"]
             )
 
         with c5:
             st.metric(
                 "Risk",
-                vessel_risk,
+                vessel_info["Risk"]
             )
 
-        voyage_text = vessel_voyage.lower()
-        defect_text = vessel_defect.lower()
-        pms_text = vessel_pms.lower()
-        risk_text = vessel_risk.lower()
 
-        attention_items = []
+        st.markdown("### 📍 Current Operational Position")
 
-        if any(
-            keyword in voyage_text
-            for keyword in [
-                "delay",
-                "delayed",
-                "late",
-                "exception",
-                "hold",
-                "cancel",
-            ]
-        ):
-            attention_items.append(
-                "Voyage membutuhkan perhatian."
-            )
-
-        if (
-            vessel_defect != "N/A"
-            and any(
-                keyword in defect_text
-                for keyword in [
-                    "open",
-                    "critical",
-                    "high",
-                    "defect",
-                    "overdue",
-                ]
-            )
-        ):
-            attention_items.append(
-                "Terdapat informasi defect "
-                "yang perlu ditinjau."
-            )
-
-        if (
-            vessel_pms != "N/A"
-            and any(
-                keyword in pms_text
-                for keyword in [
-                    "overdue",
-                    "due",
-                    "critical",
-                    "high",
-                ]
-            )
-        ):
-            attention_items.append(
-                "Terdapat perhatian pada PMS."
-            )
-
-        if any(
-            keyword in risk_text
-            for keyword in [
-                "critical",
-                "high",
-                "medium",
-                "attention",
-            ]
-        ):
-            attention_items.append(
-                f"Risk tercatat sebagai: {vessel_risk}."
-            )
-
-        st.markdown(
-            "### Operational Assessment"
+        st.write(
+            f"**Location / Destination:** "
+            f"{vessel_info['Location']}"
         )
 
-        if attention_items:
 
-            for item in attention_items:
-                st.warning(item)
+        # ====================================================
+        # DATA COVERAGE
+        # ====================================================
 
-        elif (
-            vessel_voyage == "N/A"
-            and vessel_defect == "N/A"
-            and vessel_pms == "N/A"
-            and vessel_risk == "N/A"
-        ):
+        selected_voyage = vessel_data(
+            voyage_fleet_df,
+            selected_vessel
+        )
 
-            st.info(
-                "Data operasional kapal belum cukup "
-                "untuk menentukan risk assessment. "
-                "Status kapal tersedia, tetapi Voyage, "
-                "Defect, PMS dan Risk masih DATA GAP."
+        selected_defect = vessel_data(
+            defect_fleet_df,
+            selected_vessel
+        )
+
+        selected_certificate = vessel_data(
+            certificate_fleet_df,
+            selected_vessel
+        )
+
+        selected_pms = vessel_data(
+            pms_fleet_df,
+            selected_vessel
+        )
+
+
+        coverage_rows = [
+            {
+                "Domain": "Voyage Operations",
+                "Records": len(selected_voyage),
+                "Status":
+                    "AVAILABLE"
+                    if not selected_voyage.empty
+                    else "DATA GAP"
+            },
+            {
+                "Domain": "Defects",
+                "Records": len(selected_defect),
+                "Status":
+                    "AVAILABLE"
+                    if not selected_defect.empty
+                    else "DATA GAP"
+            },
+            {
+                "Domain": "Certificates",
+                "Records": len(selected_certificate),
+                "Status":
+                    "AVAILABLE"
+                    if not selected_certificate.empty
+                    else "DATA GAP"
+            },
+            {
+                "Domain": "PMS / Maintenance",
+                "Records": len(selected_pms),
+                "Status":
+                    "AVAILABLE"
+                    if not selected_pms.empty
+                    else "DATA GAP"
+            }
+        ]
+
+        coverage_df = pd.DataFrame(coverage_rows)
+
+        st.markdown("### 🔎 Intelligence Data Coverage")
+
+        st.dataframe(
+            coverage_df,
+            use_container_width=True,
+            hide_index=True
+        )
+
+
+        # ====================================================
+        # OPERATIONAL ASSESSMENT
+        # ====================================================
+
+        st.markdown("### 🎯 Operational Assessment")
+
+        risk_value = str(vessel_info["Risk"])
+
+        if "HIGH" in risk_value:
+
+            st.error(
+                "HIGH OPERATIONAL RISK — kapal memerlukan "
+                "perhatian dan tindak lanjut operasional."
+            )
+
+        elif "MEDIUM" in risk_value:
+
+            st.warning(
+                "OPERATIONAL ATTENTION REQUIRED — terdapat "
+                "indikator operasional yang memerlukan perhatian."
+            )
+
+        elif "LOW" in risk_value:
+
+            st.success(
+                "Tidak ditemukan indikator risiko tinggi "
+                "berdasarkan data operasional yang tersedia."
             )
 
         else:
 
-            st.success(
-                "Tidak ditemukan operational exception "
-                "berdasarkan data yang tersedia."
+            st.info(
+                "Data operasional kapal belum cukup untuk "
+                "menentukan risk assessment."
             )
 
-        st.caption(
-            "Assessment hanya menggunakan data yang "
-            "tersedia pada Fleet 21 dan tidak membuat "
-            "asumsi terhadap data yang belum tersedia."
+
+        # ====================================================
+        # DETAILED RECORDS
+        # ====================================================
+
+        with st.expander(
+            "📑 Lihat data operasional kapal"
+        ):
+
+            st.markdown("#### Voyage")
+
+            if selected_voyage.empty:
+                st.info("Voyage data belum tersedia.")
+            else:
+                st.dataframe(
+                    selected_voyage,
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+
+            st.markdown("#### Defects")
+
+            if selected_defect.empty:
+                st.info("Defect data belum tersedia.")
+            else:
+                st.dataframe(
+                    selected_defect,
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+
+            st.markdown("#### Certificates")
+
+            if selected_certificate.empty:
+                st.info("Certificate data belum tersedia.")
+            else:
+                st.dataframe(
+                    selected_certificate,
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+
+            st.markdown("#### PMS / Maintenance")
+
+            if selected_pms.empty:
+                st.info("PMS data belum tersedia.")
+            else:
+                st.dataframe(
+                    selected_pms,
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+
+    # ========================================================
+    # FLEET OPERATIONAL PRIORITY
+    # ========================================================
+
+    st.markdown("### 🚨 Fleet Operational Priority")
+
+    priority_df = fleet_intelligence_df[
+        fleet_intelligence_df["Risk"]
+        .astype(str)
+        .str.contains(
+            "HIGH|MEDIUM",
+            regex=True,
+            na=False
         )
+    ]
+
+
+    if priority_df.empty:
+
+        st.success(
+            "Tidak ada HIGH/MEDIUM operational risk "
+            "berdasarkan data yang tersedia."
+        )
+
+    else:
+
+        st.dataframe(
+            priority_df,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        st.warning(
+            f"{len(priority_df)} vessel membutuhkan "
+            "operational attention."
+        )
+
+
+    # ========================================================
+    # FOOTER
+    # ========================================================
+
+    st.caption(
+        "Fleet 21 Intelligence • Voyage • Defects • "
+        "Certificates • PMS • Operational Risk"
+    )
 
 
 # ============================================================

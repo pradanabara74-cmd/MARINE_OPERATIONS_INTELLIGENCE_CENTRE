@@ -6462,45 +6462,72 @@ elif menu == "AI Marine Copilot":
 
             except Exception as e:
 
-                st.error(
-                    "Gemini gagal memproses "
-                    f"Marine Operations Intelligence: {e}"
-                )
+    st.warning(
+        "⚠️ Gemini AI sementara tidak tersedia / quota tercapai. "
+        "Marine Operations Intelligence tetap menjalankan "
+        "operational fallback assessment."
+    )
 
-    if st.session_state.get(
-        "ai_history"
-    ):
+    try:
+        intelligence_context = build_intelligence_context()
 
-        with st.expander(
-            "AI Analysis History"
-        ):
+        st.markdown(
+            "### 🧠 Marine Operations Intelligence Assessment"
+        )
 
-            for item in reversed(
-                st.session_state[
-                    "ai_history"
-                ][-10:]
-            ):
+        st.info(
+            "Fallback Intelligence Mode aktif. "
+            "Assessment menggunakan data operasional yang tersedia "
+            "di Marine Operations Intelligence Centre."
+        )
 
-                st.markdown(
-                    f"**Question:** "
-                    f"{item.get('question', '')}"
-                )
+        if intelligence_context:
 
-                st.markdown(
-                    item.get(
-                        "answer",
-                        ""
-                    )
-                )
+            st.markdown("#### 📊 Operational Data Status")
 
-                st.caption(
-                    item.get(
-                        "time",
-                        ""
-                    )
-                )
+            st.success(
+                "Operational intelligence data berhasil dibaca."
+            )
 
-                st.divider()
+            st.markdown("#### 🎯 Decision Support")
+
+            st.write(
+                "Gemini AI sedang tidak tersedia. "
+                "Gunakan Dashboard, Action Tracker, PMS, Defects, "
+                "Certificates, Bunker, Cargo, Voyage dan Audit & Findings "
+                "untuk menentukan operational priority berdasarkan "
+                "data aktual yang tersedia."
+            )
+
+            st.markdown("#### 🚨 Priority Control")
+
+            st.write(
+                "Prioritaskan Critical / High findings, overdue actions, "
+                "open defects, overdue maintenance, certificate expiry, "
+                "voyage exceptions dan operational abnormalities."
+            )
+
+            st.markdown("#### 📋 Recommended Management Action")
+
+            st.write(
+                "Marine Superintendent / DPA / Manager Operation Marine "
+                "agar melakukan review terhadap seluruh item Critical, "
+                "High dan Overdue pada Action Tracker."
+            )
+
+        else:
+
+            st.warning(
+                "Operational intelligence context belum memiliki "
+                "data yang cukup untuk assessment."
+            )
+
+    except Exception as fallback_error:
+
+        st.error(
+            "Operational fallback assessment gagal: "
+            f"{fallback_error}"
+        )
 
 
 # ============================================================

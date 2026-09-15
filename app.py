@@ -6461,75 +6461,17 @@ elif menu == "AI Marine Copilot":
                 )
 
             except Exception as e:
+                st.warning(
+                    "⚠️ Gemini AI sementara tidak tersedia / quota tercapai."
+                )
 
-    st.warning(
-        "⚠️ Gemini AI sementara tidak tersedia / quota tercapai. "
-        "Marine Operations Intelligence tetap menjalankan "
-        "operational fallback assessment."
-    )
-
-    try:
-        intelligence_context = build_intelligence_context()
-
-        st.markdown(
-            "### 🧠 Marine Operations Intelligence Assessment"
-        )
-
-        st.info(
-            "Fallback Intelligence Mode aktif. "
-            "Assessment menggunakan data operasional yang tersedia "
-            "di Marine Operations Intelligence Centre."
-        )
-
-        if intelligence_context:
-
-            st.markdown("#### 📊 Operational Data Status")
-
-            st.success(
-                "Operational intelligence data berhasil dibaca."
-            )
-
-            st.markdown("#### 🎯 Decision Support")
-
-            st.write(
-                "Gemini AI sedang tidak tersedia. "
-                "Gunakan Dashboard, Action Tracker, PMS, Defects, "
-                "Certificates, Bunker, Cargo, Voyage dan Audit & Findings "
-                "untuk menentukan operational priority berdasarkan "
-                "data aktual yang tersedia."
-            )
-
-            st.markdown("#### 🚨 Priority Control")
-
-            st.write(
-                "Prioritaskan Critical / High findings, overdue actions, "
-                "open defects, overdue maintenance, certificate expiry, "
-                "voyage exceptions dan operational abnormalities."
-            )
-
-            st.markdown("#### 📋 Recommended Management Action")
-
-            st.write(
-                "Marine Superintendent / DPA / Manager Operation Marine "
-                "agar melakukan review terhadap seluruh item Critical, "
-                "High dan Overdue pada Action Tracker."
-            )
-
-        else:
-
-            st.warning(
-                "Operational intelligence context belum memiliki "
-                "data yang cukup untuk assessment."
-            )
-
-    except Exception as fallback_error:
-
-        st.error(
-            "Operational fallback assessment gagal: "
-            f"{fallback_error}"
-        )
-
-
+                st.info(
+                    "Marine Operations Intelligence tetap dapat digunakan. "
+                    "Silakan review Dashboard, Action Tracker, PMS, Defects, "
+                    "Certificates, Voyage, Bunker, Cargo dan Audit & Findings "
+                    "berdasarkan data operasional yang tersedia."
+                )
+    
 # ============================================================
 # EXECUTIVE REPORTS
 # ============================================================

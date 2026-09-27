@@ -887,8 +887,8 @@ with st.sidebar:
         "MENU",
         [
             "Dashboard",
-            "Fleet 21",
-            "Crew 200",
+            "Fleet",
+"Crew",
             "Voyage Operations",
             "HSSE / DPA",
             "PMS / Maintenance",
@@ -908,14 +908,14 @@ with st.sidebar:
     st.divider()
 
     st.metric(
-        "Fleet",
-        "21"
-    )
+    "Fleet",
+    "0",
+)
 
-    st.metric(
-        "Crew Master",
-        "200"
-    )
+st.metric(
+    "Crew Master",
+    "0"
+)
 
     st.caption(
         f"Role: {st.session_state.role}"
@@ -1436,7 +1436,7 @@ if menu == "Dashboard":
 # FLEET 21 V2 — OPERATIONAL INTELLIGENCE
 # ============================================================
 
-elif menu == "Fleet 21":
+menu == "Fleet"
 
     st.header("🚢 Fleet 21")
 
@@ -2200,7 +2200,7 @@ elif menu == "Fleet 21":
 # CREW 200 V2 — CREW OPERATIONAL INTELLIGENCE
 # ============================================================
 
-elif menu == "Crew 200":
+menu == "Crew"
 
     st.header("👨‍✈️ Crew 200")
     st.caption(

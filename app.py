@@ -1917,23 +1917,44 @@ elif menu == "Fleet":
     )
 
 
-    # ========================================================
-    # SELECT VESSEL
-    # ========================================================
+    # ============================================================
+    # SELECT VESSEL - SAFE FOR EMPTY FLEET
+    # ============================================================
 
-    selected_vessel = st.selectbox(
-        "Pilih kapal",
-        FLEET,
-        key="fleet21_v2_vessel"
-    )
+    selected_vessel = None
+    selected_rows = pd.DataFrame()
 
-    selected_rows = fleet_intelligence_df[
-        fleet_intelligence_df["Vessel"]
-        == selected_vessel
-    ]
+    if (
+        not fleet_intelligence_df.empty
+        and "Vessel" in fleet_intelligence_df.columns
+    ):
+        vessel_options = (
+            fleet_intelligence_df["Vessel"]
+            .dropna()
+            .astype(str)
+            .tolist()
+        )
 
+        if vessel_options:
+            selected_vessel = st.selectbox(
+                "Pilih kapal",
+                vessel_options,
+                key="fleet_vessel"
+            )
 
-    if not selected_rows.empty:
+            selected_rows = fleet_intelligence_df[
+                fleet_intelligence_df["Vessel"] == selected_vessel
+            ]
+        else:
+            st.info(
+                "Belum ada kapal. Tambahkan kapal untuk memulai Fleet Intelligence."
+            )
+    else:
+        st.info(
+            "Belum ada kapal. Tambahkan kapal untuk memulai Fleet Intelligence."
+        )
+
+    if selected_vessel is not None and not selected_rows.empty:
 
         vessel_info = selected_rows.iloc[0]
 

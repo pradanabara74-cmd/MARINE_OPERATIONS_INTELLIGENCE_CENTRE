@@ -1880,7 +1880,19 @@ elif menu == "Fleet 21":
     # --------------------------------------
 
     c1, c2, c3, c4 = st.columns(4)
-    with c1:
+
+with c1:
+    st.metric(
+        "Fleet",
+        total_vessels
+    )
+
+with c2:
+    st.metric(
+        "High Risk",
+        high_risk
+    )
+...
 
 
     c1, c2, c3, c4 = st.columns(4)

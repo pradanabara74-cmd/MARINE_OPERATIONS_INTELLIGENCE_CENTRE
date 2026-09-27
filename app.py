@@ -1846,26 +1846,41 @@ elif menu == "Fleet 21":
 
     total_vessels = len(fleet_intelligence_df)
 
-    high_risk = int(
-        fleet_intelligence_df["Risk"]
-        .astype(str)
-        .str.contains("HIGH", na=False)
-        .sum()
-    )
+    # --- PERBAIKAN: Safe Risk Calculation ---
+    # Cek apakah kolom 'Risk' ada sebelum diproses
+    if "Risk" in fleet_intelligence_df.columns:
+        high_risk = int(
+            fleet_intelligence_df["Risk"]
+            .astype(str)
+            .str.contains("HIGH", na=False)
+            .sum()
+        )
+        
+        medium_risk = int(
+            fleet_intelligence_df["Risk"]
+            .astype(str)
+            .str.contains("MEDIUM", na=False)
+            .sum()
+        )
+        
+        data_gap = int(
+            fleet_intelligence_df["Risk"]
+            .astype(str)
+            .str.contains("Belum dinilai", na=False)
+            .sum()
+        )
+    else:
+        # Jika kolom 'Risk' tidak ditemukan, set nilai default 0 agar app tidak crash
+        high_risk = 0
+        medium_risk = 0
+        data_gap = 0
+        
+        # Opsional: Tampilkan peringatan kecil di dashboard
+        st.warning("⚠️ Kolom 'Risk' tidak ditemukan dalam data. Metrik risiko ditampilkan sebagai 0.")
+    # --------------------------------------
 
-    medium_risk = int(
-        fleet_intelligence_df["Risk"]
-        .astype(str)
-        .str.contains("MEDIUM", na=False)
-        .sum()
-    )
-
-    data_gap = int(
-        fleet_intelligence_df["Risk"]
-        .astype(str)
-        .str.contains("Belum dinilai", na=False)
-        .sum()
-    )
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
 
 
     c1, c2, c3, c4 = st.columns(4)

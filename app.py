@@ -914,10 +914,10 @@ with st.sidebar:
 
 st.metric(
     "Crew Master",
-    "0"
+    "0",
 )
 
-    st.caption(
+st.caption(
     f"Role: {st.session_state.role}"
 )
 

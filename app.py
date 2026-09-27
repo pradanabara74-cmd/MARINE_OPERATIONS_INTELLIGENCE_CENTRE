@@ -888,7 +888,7 @@ with st.sidebar:
         [
             "Dashboard",
             "Fleet",
-"Crew",
+            "Crew",
             "Voyage Operations",
             "HSSE / DPA",
             "PMS / Maintenance",
@@ -918,14 +918,12 @@ st.metric(
 )
 
     st.caption(
-        f"Role: {st.session_state.role}"
-    )
+    f"Role: {st.session_state.role}"
+)
 
-    if st.button("Logout"):
-
-        st.session_state.logged_in = False
-
-        st.rerun()
+if st.button("Logout"):
+    st.session_state.logged_in = False
+    st.rerun()
 
 
 # ============================================================

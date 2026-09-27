@@ -2195,12 +2195,17 @@ elif menu == "Fleet":
 
 
 # ============================================================
-# CREW 200 V2 — CREW OPERATIONAL INTELLIGENCE
+# CREW — CREW OPERATIONAL INTELLIGENCE
 # ============================================================
 
-menu == "Crew"
+elif menu == "Crew":
 
-    st.header("👨‍✈️ Crew 200")
+    st.header("👨‍✈️ Crew")
+
+    st.caption(
+        "Crew Operational Intelligence untuk monitoring manpower, rank, "
+        "vessel assignment, certificate dan operational readiness."
+    )
     st.caption(
         "Crew Operational Intelligence untuk monitoring manpower, rank, "
         "vessel assignment, certificate dan operational readiness."

@@ -726,29 +726,7 @@ st.set_page_config(
 # CONFIGURATION
 # ============================================================
 
-FLEET = [
-    "ASL MANTRUS",
-    "ASL MULIA",
-    "ASL SENTOSA",
-    "ASL VICTORY",
-    "ASL INTAN",
-    "ASL GEMINI",
-    "ASL BEAVER",
-    "ASL CRESST",
-    "ASL CALYPSO",
-    "ASL PHOENIX",
-    "ASL MARINE 8",
-    "AST LEGEND",
-    "TERAS HYDRA",
-    "AST MAJU",
-    "KARYA ABADI 8",
-    "NUSANTARA ABADI 1",
-    "CAPITOL T2002",
-    "CAPITOL T2001",
-    "TB1000-06",
-    "TB1000-07",
-    "WHALE 3",
-]
+FLEET = []
 
 ROLES = [
     "Marine Superintendent",

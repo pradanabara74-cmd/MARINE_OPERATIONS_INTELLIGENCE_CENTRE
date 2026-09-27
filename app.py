@@ -1434,9 +1434,9 @@ if menu == "Dashboard":
 # FLEET 21 V2 — OPERATIONAL INTELLIGENCE
 # ============================================================
 
-menu == "Fleet"
+elif menu == "Fleet":
 
-    st.header("🚢 Fleet 21")
+    st.header("🚢 Fleet")
 
     st.caption(
         "Fleet operational intelligence berdasarkan data aktual "

@@ -6329,25 +6329,19 @@ elif menu == "WhatsApp Operations":
         clear_on_submit=True,
     ):
 
-        w1, w2 = st.columns(
-            2
-        )
+        w1, w2 = st.columns(2)
 
         with w1:
 
             wa_vessel = st.selectbox(
                 "Vessel",
-                [
-                    "Unknown / Fleet"
-                ] + FLEET,
+                ["Unknown / Fleet"] + FLEET,
                 key="wa_vessel",
             )
 
-            wa_sender = (
-                st.text_input(
-                    "Sender",
-                    key="wa_sender",
-                )
+            wa_sender = st.text_input(
+                "Sender",
+                key="wa_sender",
             )
 
         with w2:
@@ -6384,11 +6378,9 @@ elif menu == "WhatsApp Operations":
             key="wa_message",
         )
 
-        save_wa = (
-            st.form_submit_button(
-                "SAVE OPERATIONAL MESSAGE",
-                use_container_width=True,
-            )
+        save_wa = st.form_submit_button(
+            "SAVE OPERATIONAL MESSAGE",
+            use_container_width=True,
         )
 
     if save_wa:
@@ -6402,30 +6394,16 @@ elif menu == "WhatsApp Operations":
         else:
 
             message_record = {
-
-                "message_id":
-                    "WA-"
-                    + uuid.uuid4().hex[:12]
-                    .upper(),
-
-                "message_time":
-                    datetime.now()
-                    .isoformat(),
-
-                "vessel":
-                    wa_vessel,
-
-                "sender":
-                    wa_sender.strip(),
-
-                "message":
-                    wa_message.strip(),
-
-                "risk":
-                    wa_risk,
-
-                "status":
-                    wa_status,
+                "message_id": (
+                    "WA2-"
+                    + uuid.uuid4().hex[:12].upper()
+                ),
+                "message_time": datetime.now().isoformat(),
+                "vessel": wa_vessel,
+                "sender": wa_sender.strip(),
+                "message": wa_message.strip(),
+                "risk": wa_risk,
+                "status": wa_status,
             }
 
             try:
@@ -6450,13 +6428,20 @@ elif menu == "WhatsApp Operations":
 
     # ========================================================
     # MESSAGE LOG
+    # HANYA MENAMPILKAN PESAN BARU BER-ID WA2-
     # ========================================================
 
     try:
 
-        messages = (
-            load_whatsapp_messages()
-        )
+        all_messages = load_whatsapp_messages()
+
+        messages = [
+            row
+            for row in all_messages
+            if str(
+                row.get("message_id", "")
+            ).strip().upper().startswith("WA2-")
+        ]
 
     except Exception as e:
 
@@ -6473,9 +6458,7 @@ elif menu == "WhatsApp Operations":
             "📋 Operational Message Log"
         )
 
-        wa_df = pd.DataFrame(
-            messages
-        )
+        wa_df = pd.DataFrame(messages)
 
         st.dataframe(
             wa_df,
@@ -6484,45 +6467,38 @@ elif menu == "WhatsApp Operations":
         )
 
         message_indexes = list(
-            range(
-                len(messages)
-            )
+            range(len(messages))
         )
 
-        selected_index = (
-            st.selectbox(
-                "Select Message for Action",
-                message_indexes,
-                format_func=lambda i: (
-                    str(
-                        messages[i].get(
-                            "message",
-                            "",
-                        )
-                    )[:100]
-                ),
-                key="wa_action_select",
-            )
+        selected_index = st.selectbox(
+            "Select Message for Action",
+            message_indexes,
+            format_func=lambda i: (
+                str(
+                    messages[i].get(
+                        "message",
+                        "",
+                    )
+                )[:100]
+            ),
+            key="wa_action_select",
         )
 
-        selected_message = (
-            messages[
-                selected_index
-            ]
-        )
+        selected_message = messages[selected_index]
 
         if st.button(
             "CREATE ACTION FROM WHATSAPP",
             type="primary",
             key="create_action_from_whatsapp",
         ):
+
             try:
+
                 action_rows = load_actions()
 
-                # =====================================================
+                # ============================================
                 # WHATSAPP DUPLICATE PROTECTION
-                # Satu WhatsApp message hanya boleh membuat satu Action
-                # =====================================================
+                # ============================================
 
                 wa_message_id = str(
                     selected_message.get(
@@ -6548,6 +6524,7 @@ elif menu == "WhatsApp Operations":
                 existing_action = None
 
                 for existing_row in action_rows:
+
                     existing_source = str(
                         existing_row.get(
                             "Source",
@@ -6599,11 +6576,15 @@ elif menu == "WhatsApp Operations":
                         and existing_vessel == wa_vessel
                     )
 
-                    if message_id_match or legacy_message_match:
+                    if (
+                        message_id_match
+                        or legacy_message_match
+                    ):
                         existing_action = existing_row
                         break
 
                 if existing_action is not None:
+
                     existing_action_id = str(
                         existing_action.get(
                             "Action ID",
@@ -6621,6 +6602,7 @@ elif menu == "WhatsApp Operations":
                     )
 
                 else:
+
                     wa_priority = str(
                         selected_message.get(
                             "risk",
@@ -6685,6 +6667,7 @@ elif menu == "WhatsApp Operations":
                     st.rerun()
 
             except Exception as e:
+
                 st.error(
                     "Gagal membuat Action dari "
                     f"WhatsApp: {e}"
@@ -6694,7 +6677,7 @@ elif menu == "WhatsApp Operations":
 
         st.info(
             "DATA BELUM TERSEDIA — "
-            "belum ada operational message."
+            "belum ada operational message baru."
         )
 
 

@@ -2515,10 +2515,14 @@ elif menu == "Crew":
 
     m1, m2, m3 = st.columns(3)
 
+    # ==========================================================
+    # MANPOWER READINESS - ACTUAL DATA / NO FIXED 200 TARGET
+    # ==========================================================
+
     with m1:
         st.metric(
             "Crew Master Target",
-            target_crew
+            total_crew if total_crew > 0 else "Data Gap"
         )
 
     with m2:
@@ -2530,17 +2534,23 @@ elif menu == "Crew":
     with m3:
         st.metric(
             "Manpower Data Gap",
-            manpower_gap
+            "Data Gap" if total_crew == 0 else 0
         )
 
-    st.progress(
-        int(manpower_percentage) / 100
-    )
+    if total_crew > 0:
+        st.progress(1.0)
 
-    st.caption(
-        f"Crew data coverage: {manpower_percentage:.1f}% "
-        f"dari target {target_crew} crew."
-    )
+        st.caption(
+            f"Crew data available: {total_crew} crew record(s). "
+            "Manpower readiness menggunakan Crew Master Records aktual."
+        )
+    else:
+        st.progress(0.0)
+
+        st.caption(
+            "Crew data belum tersedia. Upload Crew Data (CSV) "
+            "untuk mengaktifkan Manpower Readiness."
+        )
 
     # ==========================================================
     # VESSEL ASSIGNMENT

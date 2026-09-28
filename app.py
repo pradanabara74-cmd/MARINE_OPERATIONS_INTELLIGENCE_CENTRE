@@ -2173,35 +2173,44 @@ elif menu == "Fleet":
 
     st.markdown("### 🚨 Fleet Operational Priority")
 
-    priority_df = fleet_intelligence_df[
-        fleet_intelligence_df["Risk"]
-        .astype(str)
-        .str.contains(
-            "HIGH|MEDIUM",
-            regex=True,
-            na=False
+    # Safe Fleet Operational Priority
+    if (
+        not fleet_intelligence_df.empty
+        and "Risk" in fleet_intelligence_df.columns
+    ):
+        risk_mask = (
+            fleet_intelligence_df["Risk"]
+            .astype(str)
+            .str.contains(
+                "HIGH|MEDIUM",
+                regex=True,
+                na=False
+            )
         )
-    ]
 
+        priority_df = fleet_intelligence_df[risk_mask].copy()
 
-    if priority_df.empty:
+        if priority_df.empty:
+            st.success(
+                "Tidak ada HIGH/MEDIUM operational risk "
+                "berdasarkan data yang tersedia."
+            )
+        else:
+            st.dataframe(
+                priority_df,
+                use_container_width=True,
+                hide_index=True
+            )
 
-        st.success(
-            "Tidak ada HIGH/MEDIUM operational risk "
-            "berdasarkan data yang tersedia."
-        )
+            st.warning(
+                f"{len(priority_df)} vessel membutuhkan "
+                "operational attention."
+            )
 
     else:
-
-        st.dataframe(
-            priority_df,
-            use_container_width=True,
-            hide_index=True
-        )
-
-        st.warning(
-            f"{len(priority_df)} vessel membutuhkan "
-            "operational attention."
+        st.info(
+            "Belum ada data risiko kapal. "
+            "Fleet Operational Priority akan aktif setelah data kapal tersedia."
         )
 
 

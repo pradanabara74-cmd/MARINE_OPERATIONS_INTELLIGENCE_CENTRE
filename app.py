@@ -545,82 +545,78 @@ def action_kpis(actions):
 
 
 # ============================================================
-# OPERATIONAL SNAPSHOTS
+# CLIENT CLEAN OPERATIONAL SNAPSHOTS
 # ============================================================
 
-def save_operational_snapshot( module, records, metrics, ):
+def save_operational_snapshot(module, records, metrics):
+    """
+    CLIENT CLEAN TEMPLATE
+    Menyimpan operational snapshot untuk sesi client aktif.
+    Snapshot lama/global tidak digunakan kembali oleh dashboard.
+    """
 
-    if not supabase_enabled():
-        st.session_state[
-            f"snapshot_{module}"
-        ] = {
-            "module": module,
-            "records": records,
-            "metrics": metrics,
-            "updated_at": (
-                datetime.now().isoformat()
-            ),
-        }
-        return
-
-    payload = {
+    snapshot = {
         "module": module,
-        "records": records,
-        "metrics": metrics,
-        "updated_at": (
-            datetime.now().isoformat()
-        ),
+        "records": records if records is not None else [],
+        "metrics": metrics if metrics is not None else {},
+        "updated_at": datetime.now().isoformat(),
     }
 
-    supabase_request(
-        "POST",
-        "operational_snapshots",
-        params={
-            "on_conflict": "module"
-        },
-        payload=payload,
-    )
+    # Selalu simpan snapshot aktif pada session client
+    st.session_state[f"snapshot_{module}"] = snapshot
+
+    # Tetap simpan ke Supabase bila tersedia
+    # agar fungsi database aplikasi tidak dimatikan.
+    if supabase_enabled():
+        try:
+            payload = {
+                "module": module,
+                "records": snapshot["records"],
+                "metrics": snapshot["metrics"],
+                "updated_at": snapshot["updated_at"],
+            }
+
+            supabase_request(
+                "POST",
+                "operational_snapshots",
+                params={
+                    "on_conflict": "module"
+                },
+                payload=payload,
+            )
+
+        except Exception as e:
+            # Snapshot lokal tetap bekerja walaupun database gagal
+            st.warning(
+                f"Operational snapshot database warning: {e}"
+            )
 
 
 def load_operational_snapshots():
+    """
+    CLIENT CLEAN TEMPLATE
 
-    if supabase_enabled():
+    Dashboard hanya menggunakan snapshot yang dibuat pada
+    session client aktif.
 
-        try:
-            rows = supabase_request(
-                "GET",
-                "operational_snapshots",
-                params={
-                    "select": "*",
-                    "order": "updated_at.desc",
-                },
-            )
-
-            return {
-                row.get("module"): row
-                for row in rows
-            }
-
-        except Exception as e:
-            st.error(
-                f"Operational database error: {e}"
-            )
-
-            return {}
+    Data operational_snapshots lama/global di Supabase
+    tidak otomatis dimasukkan kembali ke dashboard client baru.
+    """
 
     result = {}
 
     for key, value in st.session_state.items():
 
-        if key.startswith(
-            "snapshot_"
-        ):
-            result[
-                key.replace(
-                    "snapshot_",
-                    "",
-                )
-            ] = value
+        if key.startswith("snapshot_"):
+
+            module_name = key.replace(
+                "snapshot_",
+                "",
+                1,
+            )
+
+            if isinstance(value, dict):
+                result[module_name] = value
 
     return result
 

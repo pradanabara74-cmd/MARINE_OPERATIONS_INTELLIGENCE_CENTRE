@@ -5539,6 +5539,62 @@ elif menu == "Action Tracker":
     )
 
     # ============================================================
+    # ONE-TIME LEGACY ACTION DATA CLEANUP
+    # ============================================================
+
+    with st.expander("🧹 Action Tracker Data Management"):
+
+        st.caption(
+            "Gunakan hanya untuk membersihkan data Action Tracker lama. "
+            "Tidak mempengaruhi Fleet, Crew, Voyage, HSSE, PMS, Defects, "
+            "Certificates, Bunker, Cargo atau Audit & Findings."
+        )
+
+        confirm_cleanup = st.checkbox(
+            "Saya yakin ingin menghapus data Action Tracker lama",
+            key="confirm_action_cleanup"
+        )
+
+        if st.button(
+            "🗑️ Hapus Data Action Tracker Lama",
+            disabled=not confirm_cleanup,
+            key="cleanup_legacy_actions"
+        ):
+
+            legacy_action_ids = [
+                "ACT-0001",
+                "ACT-0002",
+                "ACT-0003",
+                "ACT-0004",
+                "ACT-0005",
+                "ACT-0006",
+                "ACT-0007",
+                "ACT-0008",
+                "ACT-0009",
+            ]
+
+            deleted = 0
+            failed = []
+
+            for action_id in legacy_action_ids:
+                try:
+                    delete_action_persistent(action_id)
+                    deleted += 1
+                except Exception as e:
+                    failed.append(f"{action_id}: {e}")
+
+            if failed:
+                st.error(
+                    "Sebagian data belum berhasil dibersihkan: "
+                    + " | ".join(failed)
+                )
+            else:
+                st.success(
+                    f"✅ {deleted} data Action Tracker lama berhasil dibersihkan."
+                )
+                st.rerun()
+                
+    # ============================================================
     # LOAD ACTION TRACKER DATA
     # ============================================================
 

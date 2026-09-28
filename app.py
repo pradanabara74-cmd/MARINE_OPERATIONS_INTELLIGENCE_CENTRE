@@ -4744,10 +4744,10 @@ elif menu == "Bunker":
         c1, c2, c3 = st.columns(3)
 
         with c1:
-    st.metric(
-        "Vessels",
-        len(FLEET)
-    )
+            st.metric(
+                "Vessels",
+                len(FLEET)
+            )
 
         with c2:
             st.metric(
